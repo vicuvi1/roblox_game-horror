@@ -39,6 +39,30 @@ Each round: **collect every objective and survive until they're all gathered —
 | `Shift`  | Hold to sprint (drains stamina) |
 | `F`      | Toggle flashlight (drains battery) |
 
+## Getting it into Roblox Studio (Rojo — live auto-sync)
+
+This repo is set up for [Rojo](https://rojo.space), which syncs these local
+files straight into Studio and **updates live every time a file is saved**.
+`default.project.json` maps the folders to the right Roblox services.
+
+**One-time setup**
+1. Install the Rojo CLI (already done on this machine via `winget install Rojo.Rojo`).
+2. Install the **Rojo plugin** inside Studio: `Plugins` tab → `Manage Plugins` /
+   Creator Store → search **Rojo** → Install.
+
+**Every session**
+1. In a terminal, from this folder, run:  `rojo serve`
+   (prints something like `Rojo server listening on localhost:34872`).
+2. In Studio, click the **Rojo** toolbar button → **Connect**.
+3. Done — edits to any file in `src/` now appear in Studio instantly. Press
+   **Play** (F5) to test.
+
+> Rojo reads your LOCAL files, so this works even before the GitHub push is set
+> up. To pull my latest work: `git pull` in this folder and Rojo syncs it in.
+
+**Build a `.rbxlx` without Studio open (optional):**
+`rojo build default.project.json -o build.rbxlx`
+
 ## Where each script belongs in Roblox
 
 | File                     | Roblox location                          | Class          |
