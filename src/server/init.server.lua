@@ -1,19 +1,18 @@
 --!strict
 --[[
-	init.server.lua  (SERVER — main game manager)
+	init.server.lua  (SERVER — main game manager, DOORS-style)
 	------------------------------------------------------------------
-	Runs the round state machine and owns all authoritative gameplay:
-
 	    Intermission -> InGame -> GameOver -> (loop)
 
-	Chase-survival loop:
-	  * Build the mall + horror lighting once at startup.
-	  * Each round: teleport players in, spawn objectives + the Stalker.
-	  * Collect ALL objectives -> the EXIT unlocks.
-	  * Reach the exit -> ESCAPED (win). Everyone caught -> CAUGHT. Timer 0 -> TIME UP.
+	DOORS-style loop:
+	  * Build a run of numbered rooms once at startup (warm hotel lighting).
+	  * Each round: teleport players to room 1.
+	  * Hold E on a door to open it and advance; open the final door to ESCAPE.
+	  * "Rush" periodically screams down the hall — hide in a closet (E) or die.
+	  * Everyone dead -> CAUGHT. Timer runs out -> TIME UP.
 
-	Systems: stamina/sprint, flashlight/battery, monster (hearing + jumpscare),
-	flickering lights, and a HUD/FX broadcast to every client.
+	Still authoritative: stamina/sprint, flashlight/battery, hiding, Rush kills,
+	and the HUD/FX broadcast.
 ------------------------------------------------------------------ ]]
 
 local Players = game:GetService("Players")
@@ -24,9 +23,8 @@ local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
-local Objectives = require(script:WaitForChild("Objectives"))
-local MonsterAI = require(script:WaitForChild("MonsterAI"))
-local MallBuilder = require(script:WaitForChild("MallBuilder"))
+local RoomBuilder = require(script:WaitForChild("RoomBuilder"))
+local Rush = require(script:WaitForChild("Rush"))
 
 ------------------------------------------------------------------
 -- TYPES
@@ -43,6 +41,7 @@ type PlayerState = {
 	flashlightOn: boolean,
 	wantsFlashlight: boolean,
 	light: SpotLight?,
+	hidden: boolean, -- currently hiding in a closet?
 }
 
 type HudPayload = {
@@ -54,10 +53,10 @@ type HudPayload = {
 	maxBattery: number,
 	isSprinting: boolean,
 	flashlightOn: boolean,
-	objectivesCollected: number,
-	objectivesTotal: number,
+	objectivesCollected: number, -- reused as "doors opened"
+	objectivesTotal: number, -- reused as "total doors"
 	message: string,
-	beingChased: boolean,
+	beingChased: boolean, -- reused as "Rush incoming"
 	exitUnlocked: boolean,
 }
 
@@ -69,10 +68,12 @@ local playerStates: { [Player]: PlayerState } = {}
 local currentState: GameState = "Intermission"
 local phaseTimeLeft: number = 0
 local roundMessage: string = ""
-local exitUnlocked: boolean = false
-local mallRefs: MallBuilder.MallRefs? = nil
-local exitClosedPos: Vector3? = nil -- door's resting (closed) position
-local blackout: boolean = false -- true during a power-outage scare
+local blackout: boolean = false
+local rushWarning: boolean = false
+local doorsOpened: number = 0
+local escaped: boolean = false
+local openedDoors: { [number]: boolean } = {}
+local roomsRefs: RoomBuilder.RoomsRefs? = nil
 
 ------------------------------------------------------------------
 -- REMOTES
@@ -102,39 +103,42 @@ local hudRemote = ensureRemote(GameConfig.HudRemoteName)
 local eventRemote = ensureRemote(GameConfig.EventRemoteName)
 
 ------------------------------------------------------------------
--- WORLD (mall + lighting + flicker)
+-- LIGHTING + FLICKER
 ------------------------------------------------------------------
 
 local function applyHorrorLighting()
 	Lighting.ClockTime = 0
 	Lighting.Brightness = 2
-	Lighting.Ambient = Color3.fromRGB(30, 30, 40)
-	Lighting.OutdoorAmbient = Color3.fromRGB(22, 22, 30)
-	Lighting.FogColor = Color3.fromRGB(8, 8, 12)
+	Lighting.Ambient = Color3.fromRGB(34, 28, 22) -- warm, dim
+	Lighting.OutdoorAmbient = Color3.fromRGB(20, 16, 12)
+	Lighting.FogColor = Color3.fromRGB(14, 10, 8)
 	Lighting.FogStart = 0
 	Lighting.FogEnd = GameConfig.FogEnd
 	Lighting.GlobalShadows = true
 
-	-- Atmosphere gives the fog real depth/haze.
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
 	atmosphere.Density = GameConfig.AtmosphereDensity
 	atmosphere.Haze = GameConfig.AtmosphereHaze
-	atmosphere.Color = Color3.fromRGB(120, 120, 130)
-	atmosphere.Decay = Color3.fromRGB(60, 60, 75)
+	atmosphere.Color = Color3.fromRGB(150, 120, 90)
+	atmosphere.Decay = Color3.fromRGB(70, 55, 45)
 	atmosphere.Parent = Lighting
 end
 
--- Randomly flicker the fluorescents for atmosphere. Mostly-on so it never
--- gets stuck dark.
 local function startLightFlicker()
 	task.spawn(function()
 		while true do
-			if mallRefs then
-				for _, cl in mallRefs.lights do
-					-- During a blackout everything cuts out; otherwise flicker.
-					local on = (not blackout) and (math.random() > GameConfig.LightFlickerChance)
+			if roomsRefs then
+				for _, cl in roomsRefs.lights do
+					local on: boolean
+					if blackout then
+						on = false
+					elseif rushWarning then
+						on = math.random() > 0.5 -- frantic flicker warns of Rush
+					else
+						on = math.random() > GameConfig.LightFlickerChance
+					end
 					cl.light.Enabled = on
-					cl.fixture.Material = if on then Enum.Material.Neon else Enum.Material.Metal
+					cl.fixture.Material = if on then Enum.Material.Neon else Enum.Material.Wood
 				end
 			end
 			task.wait(0.08)
@@ -142,12 +146,11 @@ local function startLightFlicker()
 	end)
 end
 
--- Periodically cut ALL the fluorescents for a beat (only during a round).
 local function startPowerOutages()
 	task.spawn(function()
 		while true do
 			task.wait(math.random(GameConfig.PowerOutageMinInterval, GameConfig.PowerOutageMaxInterval))
-			if currentState == "InGame" then
+			if currentState == "InGame" and not rushWarning then
 				blackout = true
 				eventRemote:FireAllClients({ type = "blackout", duration = GameConfig.PowerOutageDuration })
 				task.wait(GameConfig.PowerOutageDuration)
@@ -155,51 +158,6 @@ local function startPowerOutages()
 			end
 		end
 	end)
-end
-
-------------------------------------------------------------------
--- EXIT DOOR
-------------------------------------------------------------------
-
-local function setExitState(unlocked: boolean)
-	exitUnlocked = unlocked
-	if not mallRefs then
-		return
-	end
-	local door = mallRefs.exitPart
-	door.Color = if unlocked then Color3.fromRGB(30, 140, 40) else Color3.fromRGB(120, 20, 20)
-
-	local light = door:FindFirstChildOfClass("SurfaceLight")
-	if light then
-		light.Color = if unlocked then Color3.fromRGB(60, 255, 90) else Color3.fromRGB(255, 40, 40)
-	end
-	local sign = door:FindFirstChild("ExitSign")
-	local text = sign and sign:FindFirstChildOfClass("TextLabel")
-	if text then
-		text.Text = if unlocked then "EXIT — OPEN" else "EXIT — LOCKED"
-		text.TextColor3 = if unlocked then Color3.fromRGB(60, 255, 90) else Color3.fromRGB(255, 60, 60)
-	end
-
-	-- Slide the door up to open, or snap it shut when re-locking.
-	if exitClosedPos then
-		if unlocked then
-			TweenService:Create(
-				door,
-				TweenInfo.new(1.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-				{ Position = exitClosedPos + Vector3.new(0, 15, 0) }
-			):Play()
-		else
-			door.Position = exitClosedPos
-		end
-	end
-
-	if unlocked and GameConfig.Sounds.DoorOpen ~= "" then
-		local s = Instance.new("Sound")
-		s.SoundId = GameConfig.Sounds.DoorOpen
-		s.Volume = 1
-		s.Parent = door
-		s:Play()
-	end
 end
 
 ------------------------------------------------------------------
@@ -221,10 +179,11 @@ local function applyWalkSpeed(player: Player, speed: number)
 	end
 end
 
-local function addBattery(player: Player, amount: number)
-	local state = playerStates[player]
-	if state then
-		state.battery = math.clamp(state.battery + amount, 0, GameConfig.MaxBattery)
+local function setAnchored(player: Player, anchored: boolean)
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if hrp and hrp:IsA("BasePart") then
+		hrp.Anchored = anchored
 	end
 end
 
@@ -245,22 +204,82 @@ local function aliveCount(): number
 	return count
 end
 
--- Has any living player reached the (unlocked) exit?
-local function anyoneEscaped(): boolean
-	if not mallRefs then
-		return false
+------------------------------------------------------------------
+-- DOORS + HIDING
+------------------------------------------------------------------
+
+local function openDoor(room: RoomBuilder.Room)
+	if openedDoors[room.index] then
+		return
 	end
-	for _, player in Players:GetPlayers() do
-		local humanoid = getHumanoid(player)
-		local character = player.Character
-		if humanoid and humanoid.Health > 0 and character then
-			local pos = character:GetPivot().Position
-			if (pos - mallRefs.exitPosition).Magnitude <= GameConfig.ExitReachRange then
-				return true
-			end
+	openedDoors[room.index] = true
+	room.prompt.Enabled = false
+	room.door.CanCollide = false
+	TweenService:Create(
+		room.door,
+		TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Position = room.closedPos + Vector3.new(0, GameConfig.DoorwayHeight, 0) }
+	):Play()
+
+	if GameConfig.Sounds.DoorOpen ~= "" then
+		local s = Instance.new("Sound")
+		s.SoundId = GameConfig.Sounds.DoorOpen
+		s.Volume = 1
+		s.Parent = room.door
+		s:Play()
+	end
+
+	doorsOpened = math.max(doorsOpened, room.index)
+	if room.index >= GameConfig.RoomCount then
+		escaped = true -- opened the final door
+	end
+end
+
+local function toggleHide(player: Player, closet: RoomBuilder.Closet)
+	local state = playerStates[player]
+	local character = player.Character
+	if not state or not character then
+		return
+	end
+	if state.hidden then
+		state.hidden = false
+		setAnchored(player, false)
+		character:PivotTo(CFrame.new(closet.exitPos))
+	else
+		state.hidden = true
+		character:PivotTo(CFrame.new(closet.hidePos))
+		setAnchored(player, true)
+	end
+end
+
+-- Connect all door + closet prompts once, after the level is built.
+local function wireRooms()
+	if not roomsRefs then
+		return
+	end
+	for _, room in roomsRefs.rooms do
+		room.prompt.Triggered:Connect(function()
+			openDoor(room)
+		end)
+		for _, closet in room.closets do
+			closet.prompt.Triggered:Connect(function(player: Player)
+				toggleHide(player, closet)
+			end)
 		end
 	end
-	return false
+end
+
+local function resetDoors()
+	openedDoors = {}
+	doorsOpened = 0
+	if not roomsRefs then
+		return
+	end
+	for _, room in roomsRefs.rooms do
+		room.door.Position = room.closedPos
+		room.door.CanCollide = true
+		room.prompt.Enabled = true
+	end
 end
 
 ------------------------------------------------------------------
@@ -313,6 +332,7 @@ local function onPlayerAdded(player: Player)
 		flashlightOn = false,
 		wantsFlashlight = false,
 		light = nil,
+		hidden = false,
 	}
 
 	player.CharacterAdded:Connect(function()
@@ -320,6 +340,7 @@ local function onPlayerAdded(player: Player)
 		local state = playerStates[player]
 		if state then
 			state.light = nil
+			state.hidden = false
 		end
 	end)
 
@@ -349,7 +370,8 @@ end)
 ------------------------------------------------------------------
 
 local function updateStamina(player: Player, state: PlayerState, humanoid: Humanoid, deltaTime: number)
-	local canSprint = state.wantsToSprint and state.stamina > 0
+	-- Hidden players don't move, so no stamina drain — let them recover.
+	local canSprint = state.wantsToSprint and state.stamina > 0 and not state.hidden
 	if canSprint then
 		state.isSprinting = true
 		state.lastSprintTime = os.clock()
@@ -381,7 +403,6 @@ local function updateFlashlight(player: Player, state: PlayerState, deltaTime: n
 		state.battery = math.max(0, state.battery - GameConfig.BatteryDrainRate * deltaTime)
 		local light = ensureFlashlight(player)
 		if light then
-			-- Dying batteries make the beam stutter (classic horror cue).
 			if state.battery < GameConfig.MaxBattery * 0.2 then
 				light.Enabled = math.random() > 0.4
 			else
@@ -424,9 +445,6 @@ end
 ------------------------------------------------------------------
 
 local function broadcastHud()
-	local collected = Objectives.getCollected()
-	local totalObjectives = Objectives.getTotal()
-	local chaseTarget = MonsterAI.getChaseTarget()
 	for player, state in playerStates do
 		local payload: HudPayload = {
 			state = currentState,
@@ -437,11 +455,11 @@ local function broadcastHud()
 			maxBattery = GameConfig.MaxBattery,
 			isSprinting = state.isSprinting,
 			flashlightOn = state.flashlightOn,
-			objectivesCollected = collected,
-			objectivesTotal = totalObjectives,
+			objectivesCollected = doorsOpened,
+			objectivesTotal = GameConfig.RoomCount,
 			message = roundMessage,
-			beingChased = chaseTarget == player,
-			exitUnlocked = exitUnlocked,
+			beingChased = rushWarning,
+			exitUnlocked = false,
 		}
 		hudRemote:FireClient(player, payload)
 	end
@@ -451,14 +469,12 @@ end
 -- TELEPORTS
 ------------------------------------------------------------------
 
-local function teleportPlayersToMall()
-	local spawnPoints = mallRefs and mallRefs.spawnPoints or { GameConfig.ArenaCenter }
+local function teleportPlayersToRooms()
+	local start = if roomsRefs then roomsRefs.startPos else GameConfig.LobbySpawn
 	local index = 0
 	for _, player in Players:GetPlayers() do
 		index += 1
-		local pos = spawnPoints[((index - 1) % #spawnPoints) + 1]
-		spawnPlayerAt(player, pos)
-		print(string.format("[Round] Spawned %s in the mall", player.Name))
+		spawnPlayerAt(player, start + Vector3.new((index - 1) * 3, 0, 0))
 	end
 end
 
@@ -475,20 +491,37 @@ local function hasEnoughPlayers(): boolean
 end
 
 ------------------------------------------------------------------
--- MONSTER DEPENDENCIES
+-- RUSH
 ------------------------------------------------------------------
 
-local monsterDeps: MonsterAI.Deps = {
-	-- Fire the jumpscare on the caught player's client.
-	onCatch = function(player: Player)
+local rushHooks: Rush.Hooks = {
+	isHidden = function(player: Player): boolean
+		local state = playerStates[player]
+		return state ~= nil and state.hidden
+	end,
+	onKill = function(player: Player)
+		local humanoid = getHumanoid(player)
+		if humanoid then
+			humanoid.Health = 0
+		end
 		eventRemote:FireClient(player, { type = "jumpscare" })
 	end,
-	-- Let the monster "hear" players who are sprinting.
-	isSprinting = function(player: Player): boolean
-		local state = playerStates[player]
-		return state ~= nil and state.isSprinting
+	onWarn = function(active: boolean)
+		rushWarning = active
+		roundMessage = if active then "HIDE!" else ""
 	end,
 }
+
+local function startRushEvents()
+	task.spawn(function()
+		while true do
+			task.wait(math.random(GameConfig.RushMinInterval, GameConfig.RushMaxInterval))
+			if currentState == "InGame" and roomsRefs then
+				Rush.run(roomsRefs, rushHooks)
+			end
+		end
+	end)
+end
 
 ------------------------------------------------------------------
 -- STATE MACHINE
@@ -497,13 +530,10 @@ local monsterDeps: MonsterAI.Deps = {
 local function runIntermission()
 	currentState = "Intermission"
 	roundMessage = ""
-	print("[State] Intermission")
-
 	while not hasEnoughPlayers() do
 		phaseTimeLeft = 0
 		task.wait(1)
 	end
-
 	for secondsLeft = GameConfig.IntermissionLength, 1, -1 do
 		if not hasEnoughPlayers() then
 			return
@@ -516,44 +546,32 @@ end
 local function runGame(): string
 	currentState = "InGame"
 	roundMessage = ""
-	print("[State] InGame — round starting!")
+	escaped = false
+	print("[State] InGame — the run begins!")
 
 	for _, state in playerStates do
 		state.stamina = GameConfig.MaxStamina
 		state.battery = GameConfig.MaxBattery
+		state.hidden = false
 	end
 
-	teleportPlayersToMall()
-	setExitState(false) -- exit starts locked
-	Objectives.start()
-	MonsterAI.start(monsterDeps)
+	resetDoors()
+	teleportPlayersToRooms()
 
 	local result = "TIME UP"
 	for secondsLeft = GameConfig.MatchLength, 1, -1 do
 		phaseTimeLeft = secondsLeft
-
-		-- Unlock the exit once every objective is collected.
-		if not exitUnlocked and Objectives.isComplete() then
-			setExitState(true)
-			print("[State] All objectives collected — EXIT UNLOCKED")
-		end
-
-		-- WIN: someone reached the open exit.
-		if exitUnlocked and anyoneEscaped() then
+		if escaped then
 			result = "ESCAPED"
 			break
 		end
-		-- LOSE: everyone is dead.
 		if aliveCount() == 0 then
 			result = "CAUGHT"
 			break
 		end
-
 		task.wait(1)
 	end
 
-	MonsterAI.stop()
-	Objectives.stop()
 	print("[State] Round over: " .. result)
 	return result
 end
@@ -562,9 +580,7 @@ local function runGameOver(result: string)
 	currentState = "GameOver"
 	roundMessage = result
 	print("[State] GameOver — " .. result)
-
 	teleportPlayersToLobby()
-
 	for secondsLeft = GameConfig.GameOverLength, 1, -1 do
 		phaseTimeLeft = secondsLeft
 		task.wait(1)
@@ -578,13 +594,12 @@ end
 
 Players.CharacterAutoLoads = false
 
-if GameConfig.CreateDevArena then
-	mallRefs = MallBuilder.build()
-	exitClosedPos = mallRefs.exitPart.Position
-	applyHorrorLighting()
-	startLightFlicker()
-	startPowerOutages()
-end
+roomsRefs = RoomBuilder.build()
+wireRooms()
+applyHorrorLighting()
+startLightFlicker()
+startPowerOutages()
+startRushEvents()
 
 Players.PlayerAdded:Connect(onPlayerAdded)
 Players.PlayerRemoving:Connect(onPlayerRemoving)
@@ -612,4 +627,4 @@ task.spawn(function()
 	end
 end)
 
-print("[Server] 90s Mall Horror initialized — VHS tracking OK ]|[")
+print("[Server] 90s Mall Horror (DOORS-style) initialized — VHS tracking OK ]|[")

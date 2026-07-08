@@ -56,6 +56,24 @@ export type GameConfig = {
 	-- Exit
 	ExitReachRange: number, -- how close to the exit door counts as "escaped"
 
+	-- DOORS-style rooms
+	RoomCount: number, -- number of rooms/doors to clear (last door = escape)
+	RoomWidth: number,
+	RoomLength: number,
+	RoomHeight: number,
+	DoorwayWidth: number,
+	DoorwayHeight: number,
+	FirstRoomZ: number, -- world Z of room 1's center
+	ClosetsPerRoom: number,
+	DoorHoldDuration: number, -- seconds holding E to open a door
+
+	-- Rush entity (screams down the hallway; hide in a closet or die)
+	RushMinInterval: number,
+	RushMaxInterval: number,
+	RushWarning: number, -- seconds of light-flicker warning before it arrives
+	RushSpeed: number, -- studs/second down the corridor
+	RushKillBand: number, -- how close (studs) it must pass to catch you
+
 	-- Monster AI
 	MonsterDetectionRange: number,
 	MonsterHearingRange: number, -- extra range for detecting SPRINTING players (no LoS needed)
@@ -95,6 +113,7 @@ export type GameConfig = {
 		DoorOpen: string,
 		Footstep: string,
 		PowerDown: string,
+		Rush: string,
 	},
 
 	-- Networking
@@ -154,6 +173,24 @@ local Config: GameConfig = {
 	-- Exit
 	ExitReachRange = 10,
 
+	-- DOORS-style rooms
+	RoomCount = 12,
+	RoomWidth = 32,
+	RoomLength = 40,
+	RoomHeight = 18,
+	DoorwayWidth = 10,
+	DoorwayHeight = 12,
+	FirstRoomZ = 60,
+	ClosetsPerRoom = 2,
+	DoorHoldDuration = 0.4,
+
+	-- Rush
+	RushMinInterval = 22,
+	RushMaxInterval = 45,
+	RushWarning = 3.5,
+	RushSpeed = 85,
+	RushKillBand = 7,
+
 	-- Monster AI
 	MonsterDetectionRange = 70,
 	MonsterHearingRange = 45,
@@ -193,6 +230,7 @@ local Config: GameConfig = {
 		DoorOpen = "rbxasset://sounds/electronicpingshort.wav",
 		Footstep = "rbxasset://sounds/action_footsteps_plastic.mp3",
 		PowerDown = "rbxasset://sounds/electronicpingshort.wav",
+		Rush = "rbxassetid://140704980462451", -- swap for a proper Rush roar
 	},
 
 	-- Networking

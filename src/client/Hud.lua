@@ -173,11 +173,9 @@ function Hud.create()
 		batteryLabel.Text = string.format("BATTERY  %d%%", math.floor(batteryRatio * 100 + 0.5))
 
 		if data.state == "InGame" and data.objectivesTotal > 0 then
-			objectives.Text = string.format(
-				"OBJECTIVES  %d / %d",
-				data.objectivesCollected,
-				data.objectivesTotal
-			)
+			-- objectivesCollected/Total are reused as doors-opened / total-doors.
+			local currentDoor = math.min(data.objectivesCollected + 1, data.objectivesTotal)
+			objectives.Text = string.format("DOOR  %03d / %03d", currentDoor, data.objectivesTotal)
 			objectives.Visible = true
 		else
 			objectives.Visible = false
