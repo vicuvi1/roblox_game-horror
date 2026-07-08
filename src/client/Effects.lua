@@ -117,10 +117,11 @@ function Effects.create()
 	gui.DisplayOrder = 50
 	gui.Parent = playerGui
 
-	-- Static black vignette (always on, subtle).
+	-- Static black vignette (always on, subtle — keeps the frame cinematic
+	-- without making the middle of the screen hard to see).
 	for _, side in { "Top", "Bottom", "Left", "Right" } do
 		local grad = createEdge(gui, side, Color3.fromRGB(0, 0, 0))
-		grad.Transparency = NumberSequence.new(0.5, 1) -- fixed darkening
+		grad.Transparency = NumberSequence.new(0.35, 1)
 	end
 
 	-- Red "being chased" vignette (animated).
@@ -159,6 +160,13 @@ function Effects.create()
 	local chaseLevel = 0 -- smoothed current value
 	local pulsePhase = 0 -- heartbeat sine phase
 	local jumpscareTimer = 0 -- counts down while the flash is active
+	local bobPhase = 0 -- first-person head-bob phase
+
+	-- Local humanoid (for head-bob based on movement).
+	local function getHumanoid(): Humanoid?
+		local char = Players.LocalPlayer.Character
+		return char and char:FindFirstChildOfClass("Humanoid") or nil
+	end
 
 	local self = {}
 
@@ -207,22 +215,29 @@ function Effects.create()
 			flash.BackgroundTransparency = 1
 		end
 
-		-- Camera shake: from chase pulse + jumpscare.
+		-- Head-bob (first person) + camera shake (chase pulse + jumpscare).
 		local camera = Workspace.CurrentCamera
 		if camera then
+			-- Bob only while actually walking on the ground.
+			local humanoid = getHumanoid()
+			local moving = humanoid ~= nil
+				and humanoid.MoveDirection.Magnitude > 0.1
+				and humanoid.FloorMaterial ~= Enum.Material.Air
+			local bobSpeed = if humanoid and humanoid.WalkSpeed > 16 then 15 else 10
+			bobPhase += dt * (if moving then bobSpeed else 0)
+			local bob = if moving then math.sin(bobPhase) * 0.12 else 0
+
 			local shake = chaseLevel * 0.15 + math.max(0, jumpscareTimer) * 2.5
-			if shake > 0.001 then
-				local offset = CFrame.new(
-					(math.random() - 0.5) * shake,
-					(math.random() - 0.5) * shake,
-					0
-				) * CFrame.Angles(
-					(math.random() - 0.5) * shake * 0.05,
-					(math.random() - 0.5) * shake * 0.05,
-					(math.random() - 0.5) * shake * 0.05
-				)
-				camera.CFrame = camera.CFrame * offset
-			end
+			local offset = CFrame.new(
+				(math.random() - 0.5) * shake,
+				(math.random() - 0.5) * shake + bob,
+				0
+			) * CFrame.Angles(
+				(math.random() - 0.5) * shake * 0.05,
+				(math.random() - 0.5) * shake * 0.05,
+				(math.random() - 0.5) * shake * 0.05
+			)
+			camera.CFrame = camera.CFrame * offset
 		end
 	end
 

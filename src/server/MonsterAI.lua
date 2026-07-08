@@ -51,56 +51,80 @@ local chaseTarget: Player? = nil -- who the monster is actively chasing (for HUD
 -- BUILDING THE MONSTER
 ------------------------------------------------------------------
 
--- Build a minimal but valid character (Humanoid + HumanoidRootPart) so we can
--- drive it with Humanoid:MoveTo. Replace the visuals later; keep the structure.
+-- Build a tall, slender, "Slender-man"-style figure driven by a Humanoid. The
+-- torso IS the HumanoidRootPart (collider); everything else is welded, massless
+-- and non-colliding so movement stays reliable. Swap for a real rig later, but
+-- keep a part named "HumanoidRootPart" as PrimaryPart.
 local function buildMonster(position: Vector3): Model
 	local monster = Instance.new("Model")
 	monster.Name = "Mall_Stalker"
 
-	-- The physics/movement driver. Named exactly "HumanoidRootPart" so the
-	-- Humanoid recognizes it.
-	local root = Instance.new("Part")
-	root.Name = "HumanoidRootPart"
-	root.Size = Vector3.new(3, 6, 3)
-	root.Position = position
-	root.Anchored = false
-	root.CanCollide = true
-	root.Material = Enum.Material.SmoothPlastic
-	root.Color = Color3.fromRGB(30, 10, 12) -- near-black, blood-tinted
-	root.Parent = monster
+	local BODY = Color3.fromRGB(16, 12, 14) -- near-black
 
-	-- Two glowing "eyes" so players can see it coming in the dark.
-	for _, offsetX in { -0.7, 0.7 } do
+	-- Weld a decorative part to the torso.
+	local function attach(part: BasePart, torso: BasePart, offset: CFrame)
+		part.CanCollide = false
+		part.Massless = true
+		part.Anchored = false
+		part.Material = Enum.Material.SmoothPlastic
+		part.Color = BODY
+		part.Parent = monster
+		part.CFrame = torso.CFrame * offset
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = torso
+		weld.Part1 = part
+		weld.Parent = part
+	end
+
+	-- Torso = the tall collider (~9 studs). Rests on the floor via collision.
+	local torso = Instance.new("Part")
+	torso.Name = "HumanoidRootPart"
+	torso.Size = Vector3.new(2.4, 9, 1.4)
+	torso.Position = position
+	torso.Anchored = false
+	torso.CanCollide = true
+	torso.Material = Enum.Material.SmoothPlastic
+	torso.Color = BODY
+	torso.Parent = monster
+
+	-- Head on top.
+	local head = Instance.new("Part")
+	head.Name = "Head"
+	head.Size = Vector3.new(1.8, 2, 1.8)
+	attach(head, torso, CFrame.new(0, 5.5, 0))
+
+	-- Two glowing eyes on the head's front (-Z face).
+	for _, ox in { -0.45, 0.45 } do
 		local eye = Instance.new("Part")
 		eye.Name = "Eye"
 		eye.Shape = Enum.PartType.Ball
-		eye.Size = Vector3.new(0.5, 0.5, 0.5)
+		eye.Size = Vector3.new(0.4, 0.4, 0.4)
+		attach(eye, torso, CFrame.new(ox, 5.6, -0.95))
 		eye.Material = Enum.Material.Neon
-		eye.Color = Color3.fromRGB(255, 40, 40)
-		eye.CanCollide = false
-		eye.Massless = true
-		eye.Parent = monster
-		-- Weld the eye to the front-upper area of the root.
-		eye.CFrame = root.CFrame * CFrame.new(offsetX, 1.8, -1.4)
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = root
-		weld.Part1 = eye
-		weld.Parent = eye
+		eye.Color = Color3.fromRGB(255, 30, 30)
 	end
 
+	-- Long thin arms hanging at the sides (the unsettling silhouette).
+	for _, ox in { -1.6, 1.6 } do
+		local arm = Instance.new("Part")
+		arm.Name = "Arm"
+		arm.Size = Vector3.new(0.6, 7, 0.6)
+		attach(arm, torso, CFrame.new(ox, -0.5, 0.2))
+	end
+
+	-- Bright red eye-glow so you catch it staring through the fog from afar.
 	local eyeGlow = Instance.new("PointLight")
-	eyeGlow.Color = Color3.fromRGB(255, 60, 60)
-	eyeGlow.Range = 10
-	eyeGlow.Brightness = 2
-	eyeGlow.Parent = root
+	eyeGlow.Color = Color3.fromRGB(255, 40, 40)
+	eyeGlow.Range = 26
+	eyeGlow.Brightness = 4
+	eyeGlow.Parent = head
 
 	local humanoid = Instance.new("Humanoid")
 	humanoid.WalkSpeed = GameConfig.MonsterPatrolSpeed
-	-- Single collidable part rests on the floor via physics, so no hover needed.
 	humanoid.HipHeight = 0
 	humanoid.Parent = monster
 
-	monster.PrimaryPart = root
+	monster.PrimaryPart = torso
 	return monster
 end
 

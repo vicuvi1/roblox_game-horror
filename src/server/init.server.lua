@@ -104,9 +104,9 @@ local eventRemote = ensureRemote(GameConfig.EventRemoteName)
 
 local function applyHorrorLighting()
 	Lighting.ClockTime = 0
-	Lighting.Brightness = 1
-	Lighting.Ambient = Color3.fromRGB(18, 18, 24)
-	Lighting.OutdoorAmbient = Color3.fromRGB(12, 12, 18)
+	Lighting.Brightness = 2
+	Lighting.Ambient = Color3.fromRGB(30, 30, 40)
+	Lighting.OutdoorAmbient = Color3.fromRGB(22, 22, 30)
 	Lighting.FogColor = Color3.fromRGB(8, 8, 12)
 	Lighting.FogStart = 0
 	Lighting.FogEnd = GameConfig.FogEnd

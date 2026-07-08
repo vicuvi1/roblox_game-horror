@@ -31,6 +31,10 @@ local eventRemote = remotesFolder:WaitForChild(GameConfig.EventRemoteName) :: Re
 local localPlayer = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 
+-- Immersive first-person: locks the view inside the character's head, which
+-- also hides your own avatar (no wings/hats blocking the screen).
+localPlayer.CameraMode = Enum.CameraMode.LockFirstPerson
+
 local hud = Hud.create()
 local fx = Effects.create()
 
@@ -102,6 +106,7 @@ localPlayer.CharacterAdded:Connect(function()
 	sprintRemote:FireServer(false)
 	flashlightRemote:FireServer(false)
 	camera = Workspace.CurrentCamera
+	localPlayer.CameraMode = Enum.CameraMode.LockFirstPerson -- re-assert on respawn
 end)
 
 print("[Client] Ready — Shift to sprint, F for flashlight")

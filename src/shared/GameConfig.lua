@@ -120,9 +120,9 @@ local Config: GameConfig = {
 	MaxBattery = 100,
 	BatteryDrainRate = 4,
 	BatteryRegenRate = 0,
-	FlashlightRange = 60,
-	FlashlightAngle = 50,
-	FlashlightBrightness = 2.5,
+	FlashlightRange = 90,
+	FlashlightAngle = 65,
+	FlashlightBrightness = 5,
 	FlashlightColor = Color3.fromRGB(255, 244, 214),
 
 	-- World
@@ -155,10 +155,10 @@ local Config: GameConfig = {
 	MonsterSearchTime = 6,
 	MonsterGrowlRange = 35,
 
-	-- Atmosphere
-	FogEnd = 85,
-	AtmosphereDensity = 0.42,
-	AtmosphereHaze = 2.4,
+	-- Atmosphere (readable but moody — raise FogEnd if you want to see farther)
+	FogEnd = 110,
+	AtmosphereDensity = 0.32,
+	AtmosphereHaze = 2,
 
 	-- Client feel
 	SprintFov = 78,

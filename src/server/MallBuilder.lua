@@ -89,14 +89,15 @@ function MallBuilder.build(): MallRefs
 	----------------------------------------------------------------
 	-- Floor + ceiling
 	----------------------------------------------------------------
-	newPart({
+	local floor = newPart({
 		name = "Floor",
 		size = Vector3.new(size.X, 1, size.Z),
 		position = Vector3.new(center.X, center.Y, center.Z),
-		color = Color3.fromRGB(48, 48, 54),
-		material = Enum.Material.Concrete,
+		color = Color3.fromRGB(38, 38, 44),
+		material = Enum.Material.Slate,
 		parent = folder,
 	})
+	floor.Reflectance = 0.22 -- wet, reflective mall-tile look (catches the neon)
 
 	newPart({
 		name = "Ceiling",
@@ -220,10 +221,31 @@ function MallBuilder.build(): MallRefs
 			})
 			local light = Instance.new("PointLight")
 			light.Color = Color3.fromRGB(220, 225, 210)
-			light.Range = 34
-			light.Brightness = 1.6
+			light.Range = 42
+			light.Brightness = 2.8
 			light.Parent = fixture
 			table.insert(lights, { light = light, fixture = fixture })
+		end
+	end
+
+	-- Red emergency lights along the side walls for mood + readability.
+	for _, sideSign in { 1, -1 } do
+		for i = 1, 3 do
+			local z = center.Z - halfZ + (size.Z) * (i / 4)
+			local x = center.X + sideSign * (halfX - 3)
+			local fixture = newPart({
+				name = "EmergencyLight",
+				size = Vector3.new(1, 1.5, 1.5),
+				position = Vector3.new(x, center.Y + wallH * 0.6, z),
+				color = Color3.fromRGB(255, 40, 40),
+				material = Enum.Material.Neon,
+				parent = folder,
+			})
+			local red = Instance.new("PointLight")
+			red.Color = Color3.fromRGB(255, 30, 30)
+			red.Range = 20
+			red.Brightness = 1.4
+			red.Parent = fixture
 		end
 	end
 
