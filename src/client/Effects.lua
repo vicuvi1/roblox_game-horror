@@ -140,6 +140,16 @@ function Effects.create()
 	flash.ZIndex = 10
 	flash.Parent = gui
 
+	-- Full-screen black for power-outage blackouts.
+	local blackOverlay = Instance.new("Frame")
+	blackOverlay.Name = "Blackout"
+	blackOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	blackOverlay.BorderSizePixel = 0
+	blackOverlay.Size = UDim2.new(1, 0, 1, 0)
+	blackOverlay.BackgroundTransparency = 1
+	blackOverlay.ZIndex = 8
+	blackOverlay.Parent = gui
+
 	----------------------------------------------------------------
 	-- Sounds (optional)
 	----------------------------------------------------------------
@@ -152,6 +162,8 @@ function Effects.create()
 		heartbeat:Play()
 	end
 	local jumpscareSound = makeSound(GameConfig.Sounds.Jumpscare, false, 1)
+	local footstepSound = makeSound(GameConfig.Sounds.Footstep, false, 0.5)
+	local powerDownSound = makeSound(GameConfig.Sounds.PowerDown, false, 0.7)
 
 	----------------------------------------------------------------
 	-- State
@@ -161,6 +173,8 @@ function Effects.create()
 	local pulsePhase = 0 -- heartbeat sine phase
 	local jumpscareTimer = 0 -- counts down while the flash is active
 	local bobPhase = 0 -- first-person head-bob phase
+	local stepTimer = 0 -- footstep cadence
+	local blackoutTimer = 0 -- counts down during a power outage
 
 	-- Local humanoid (for head-bob based on movement).
 	local function getHumanoid(): Humanoid?
@@ -178,6 +192,13 @@ function Effects.create()
 		jumpscareTimer = 0.6
 		if jumpscareSound then
 			jumpscareSound:Play()
+		end
+	end
+
+	function self.blackout(duration: number)
+		blackoutTimer = math.max(blackoutTimer, duration)
+		if powerDownSound then
+			powerDownSound:Play()
 		end
 	end
 
@@ -215,14 +236,38 @@ function Effects.create()
 			flash.BackgroundTransparency = 1
 		end
 
+		-- Movement (shared by footsteps + head-bob).
+		local humanoid = getHumanoid()
+		local moving = humanoid ~= nil
+			and humanoid.MoveDirection.Magnitude > 0.1
+			and humanoid.FloorMaterial ~= Enum.Material.Air
+
+		-- Footsteps: a step sound on a cadence that speeds up when sprinting.
+		if footstepSound then
+			if moving then
+				stepTimer -= dt
+				if stepTimer <= 0 then
+					footstepSound.PlaybackSpeed = 0.9 + math.random() * 0.2
+					footstepSound.TimePosition = 0
+					footstepSound:Play()
+					stepTimer = if humanoid and humanoid.WalkSpeed > 16 then 0.3 else 0.45
+				end
+			else
+				stepTimer = 0
+			end
+		end
+
+		-- Blackout darkening (snaps dark, eases back over the last 0.3s).
+		if blackoutTimer > 0 then
+			blackoutTimer -= dt
+			blackOverlay.BackgroundTransparency = 1 - 0.85 * math.clamp(blackoutTimer / 0.3, 0, 1)
+		else
+			blackOverlay.BackgroundTransparency = 1
+		end
+
 		-- Head-bob (first person) + camera shake (chase pulse + jumpscare).
 		local camera = Workspace.CurrentCamera
 		if camera then
-			-- Bob only while actually walking on the ground.
-			local humanoid = getHumanoid()
-			local moving = humanoid ~= nil
-				and humanoid.MoveDirection.Magnitude > 0.1
-				and humanoid.FloorMaterial ~= Enum.Material.Air
 			local bobSpeed = if humanoid and humanoid.WalkSpeed > 16 then 15 else 10
 			bobPhase += dt * (if moving then bobSpeed else 0)
 			local bob = if moving then math.sin(bobPhase) * 0.12 else 0

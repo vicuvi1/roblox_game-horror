@@ -21,6 +21,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local Objectives = require(script:WaitForChild("Objectives"))
@@ -70,6 +71,8 @@ local phaseTimeLeft: number = 0
 local roundMessage: string = ""
 local exitUnlocked: boolean = false
 local mallRefs: MallBuilder.MallRefs? = nil
+local exitClosedPos: Vector3? = nil -- door's resting (closed) position
+local blackout: boolean = false -- true during a power-outage scare
 
 ------------------------------------------------------------------
 -- REMOTES
@@ -128,12 +131,28 @@ local function startLightFlicker()
 		while true do
 			if mallRefs then
 				for _, cl in mallRefs.lights do
-					local on = math.random() > GameConfig.LightFlickerChance
+					-- During a blackout everything cuts out; otherwise flicker.
+					local on = (not blackout) and (math.random() > GameConfig.LightFlickerChance)
 					cl.light.Enabled = on
 					cl.fixture.Material = if on then Enum.Material.Neon else Enum.Material.Metal
 				end
 			end
 			task.wait(0.08)
+		end
+	end)
+end
+
+-- Periodically cut ALL the fluorescents for a beat (only during a round).
+local function startPowerOutages()
+	task.spawn(function()
+		while true do
+			task.wait(math.random(GameConfig.PowerOutageMinInterval, GameConfig.PowerOutageMaxInterval))
+			if currentState == "InGame" then
+				blackout = true
+				eventRemote:FireAllClients({ type = "blackout", duration = GameConfig.PowerOutageDuration })
+				task.wait(GameConfig.PowerOutageDuration)
+				blackout = false
+			end
 		end
 	end)
 end
@@ -159,6 +178,19 @@ local function setExitState(unlocked: boolean)
 	if text then
 		text.Text = if unlocked then "EXIT — OPEN" else "EXIT — LOCKED"
 		text.TextColor3 = if unlocked then Color3.fromRGB(60, 255, 90) else Color3.fromRGB(255, 60, 60)
+	end
+
+	-- Slide the door up to open, or snap it shut when re-locking.
+	if exitClosedPos then
+		if unlocked then
+			TweenService:Create(
+				door,
+				TweenInfo.new(1.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ Position = exitClosedPos + Vector3.new(0, 15, 0) }
+			):Play()
+		else
+			door.Position = exitClosedPos
+		end
 	end
 
 	if unlocked and GameConfig.Sounds.DoorOpen ~= "" then
@@ -349,7 +381,12 @@ local function updateFlashlight(player: Player, state: PlayerState, deltaTime: n
 		state.battery = math.max(0, state.battery - GameConfig.BatteryDrainRate * deltaTime)
 		local light = ensureFlashlight(player)
 		if light then
-			light.Enabled = true
+			-- Dying batteries make the beam stutter (classic horror cue).
+			if state.battery < GameConfig.MaxBattery * 0.2 then
+				light.Enabled = math.random() > 0.4
+			else
+				light.Enabled = true
+			end
 		end
 		if state.battery <= 0 then
 			state.flashlightOn = false
@@ -543,8 +580,10 @@ Players.CharacterAutoLoads = false
 
 if GameConfig.CreateDevArena then
 	mallRefs = MallBuilder.build()
+	exitClosedPos = mallRefs.exitPart.Position
 	applyHorrorLighting()
 	startLightFlicker()
+	startPowerOutages()
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)

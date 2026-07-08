@@ -74,9 +74,11 @@ hudRemote.OnClientEvent:Connect(function(data: Hud.HudData)
 	fx.setChaseLevel(if data.beingChased then 1 else 0)
 end)
 
-eventRemote.OnClientEvent:Connect(function(event: { type: string })
+eventRemote.OnClientEvent:Connect(function(event: { type: string, duration: number? })
 	if event.type == "jumpscare" then
 		fx.jumpscare()
+	elseif event.type == "blackout" then
+		fx.blackout(event.duration or 1.4)
 	end
 end)
 

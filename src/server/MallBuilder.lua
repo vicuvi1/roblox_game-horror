@@ -250,6 +250,37 @@ function MallBuilder.build(): MallRefs
 	end
 
 	----------------------------------------------------------------
+	-- Floating dust motes (built-in particle texture, no upload needed)
+	----------------------------------------------------------------
+	local dust = newPart({
+		name = "DustVolume",
+		size = Vector3.new(size.X - 10, wallH - 4, size.Z - 10),
+		position = Vector3.new(center.X, center.Y + wallH / 2, center.Z),
+		color = Color3.fromRGB(0, 0, 0),
+		material = Enum.Material.Plastic,
+		parent = folder,
+		transparency = 1,
+	})
+	dust.CanCollide = false
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	emitter.Rate = 45
+	emitter.Lifetime = NumberRange.new(7, 11)
+	emitter.Speed = NumberRange.new(0.2, 0.7)
+	emitter.Rotation = NumberRange.new(0, 360)
+	emitter.RotSpeed = NumberRange.new(-8, 8)
+	emitter.Size = NumberSequence.new(0.3)
+	emitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.25, 0.82),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	emitter.Color = ColorSequence.new(Color3.fromRGB(170, 170, 180))
+	emitter.Acceleration = Vector3.new(0.2, -0.25, 0.1)
+	emitter.LightEmission = 0.1
+	emitter.Parent = dust
+
+	----------------------------------------------------------------
 	-- EXIT door on the North wall (locked until objectives are done)
 	----------------------------------------------------------------
 	local exitZ = center.Z + halfZ - wallT

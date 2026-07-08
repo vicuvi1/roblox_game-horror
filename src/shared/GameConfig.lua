@@ -78,7 +78,14 @@ export type GameConfig = {
 	-- HUD broadcast
 	HudUpdateRate: number,
 
-	-- Sound asset ids (leave "" to disable; fill with rbxassetid://NUMBER)
+	-- Power-outage scare events (all fluorescents cut out briefly)
+	PowerOutageMinInterval: number,
+	PowerOutageMaxInterval: number,
+	PowerOutageDuration: number,
+
+	-- Sound asset ids (leave "" to disable; fill with rbxassetid://NUMBER).
+	-- rbxasset:// paths are engine built-ins and ALWAYS work; rbxassetid://
+	-- numbers are Marketplace audio (swap freely for your own).
 	Sounds: {
 		Ambient: string,
 		Heartbeat: string,
@@ -86,6 +93,8 @@ export type GameConfig = {
 		Jumpscare: string,
 		Collect: string,
 		DoorOpen: string,
+		Footstep: string,
+		PowerDown: string,
 	},
 
 	-- Networking
@@ -167,14 +176,23 @@ local Config: GameConfig = {
 	-- HUD
 	HudUpdateRate = 0.1,
 
-	-- Sounds (fill these with free audio from Creator Store -> Audio; "" = silent)
+	-- Power outages
+	PowerOutageMinInterval = 25,
+	PowerOutageMaxInterval = 55,
+	PowerOutageDuration = 1.4,
+
+	-- Sounds. Ambient + Jumpscare are Marketplace ids (VERIFY they play; if
+	-- silent, swap for your own from Creator Store -> Audio). Collect/Footstep
+	-- are engine built-ins that always work.
 	Sounds = {
-		Ambient = "",
+		Ambient = "rbxassetid://140704980462451", -- "Midnight Litany of Drones"
 		Heartbeat = "",
 		Growl = "",
-		Jumpscare = "",
-		Collect = "",
-		DoorOpen = "",
+		Jumpscare = "rbxassetid://6754147732", -- "Horror Jumpscare Sound Effect"
+		Collect = "rbxasset://sounds/electronicpingshort.wav",
+		DoorOpen = "rbxasset://sounds/electronicpingshort.wav",
+		Footstep = "rbxasset://sounds/action_footsteps_plastic.mp3",
+		PowerDown = "rbxasset://sounds/electronicpingshort.wav",
 	},
 
 	-- Networking

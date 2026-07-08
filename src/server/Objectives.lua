@@ -24,6 +24,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local Debris = game:GetService("Debris")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 
@@ -79,6 +80,29 @@ local function makeObjective(index: number, position: Vector3, parent: Instance)
 				total
 			)
 		)
+
+		-- Satisfying collect feedback: a sound + a quick expanding flash.
+		local flash = part:Clone()
+		flash:ClearAllChildren()
+		flash.Anchored = true
+		flash.CanCollide = false
+		flash.Parent = Workspace
+		Debris:AddItem(flash, 1)
+		if GameConfig.Sounds.Collect ~= "" then
+			local sound = Instance.new("Sound")
+			sound.SoundId = GameConfig.Sounds.Collect
+			sound.Volume = 1
+			sound.Parent = flash
+			sound:Play()
+		end
+		task.spawn(function()
+			for i = 1, 6 do
+				flash.Size += Vector3.new(1.2, 1.2, 1.2)
+				flash.Transparency = i / 6
+				task.wait(0.03)
+			end
+		end)
+
 		part:Destroy()
 	end)
 
