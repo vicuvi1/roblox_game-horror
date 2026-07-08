@@ -7,12 +7,30 @@ the Luau source pulled into Roblox Studio by an HttpService loader.
 
 ```
 src/
-├── server/init.lua       -- Main game manager: state machine, rounds, stamina + flashlight (authoritative), HUD broadcast
+├── server/
+│   ├── init.lua          -- Game manager: state machine, rounds, win/lose, stamina + flashlight, HUD broadcast, dev arena
+│   ├── Objectives.lua    -- Collectibles (WIN condition) with hold-E prompts
+│   └── MonsterAI.lua     -- "The Stalker" (LOSE condition): pathfinding patrol/chase/search AI
 ├── client/
 │   ├── init.lua          -- Input (sprint/flashlight), HUD wiring, sprint FOV kick
-│   └── Hud.lua           -- VHS-styled HUD built in code (bars, timer, blinking REC)
+│   └── Hud.lua           -- VHS-styled HUD built in code (bars, timer, objectives, REC, result)
 └── shared/GameConfig.lua -- ModuleScript with all tunable settings
 ```
+
+## The game loop
+
+Each round: **collect every objective and survive until they're all gathered — before the Stalker catches everyone.**
+
+| Outcome | Trigger |
+|---------|---------|
+| 🟢 **ESCAPED** (win) | All objectives collected |
+| 🔴 **CAUGHT** (lose) | The Stalker kills the last living player |
+| 🔴 **TIME UP** (lose) | Match timer hits zero with objectives left |
+
+> **Playable out of the box:** with `CreateDevArena = true` (default), the server
+> builds a floor, obstacle shelves, a lobby platform, and dark/foggy horror
+> lighting so you can test immediately. Set it to `false` once you drop in a
+> real mall map, and replace `ArenaCenter` / `LobbySpawn` with your own spawns.
 
 ## Controls
 
@@ -65,7 +83,9 @@ in that file, in source control.
 
 ## Roadmap ideas
 
-- Real spawn points + escape objective
-- Monster AI + chase music (VHS-filtered)
-- Stamina bar UI + flashlight (battery drain reuses the stamina pattern)
-- Server → client RemoteEvent to broadcast game state for menus/HUD
+- Replace the dev arena with a real 90s mall map (storefronts, food court)
+- Animated monster rig + chase music (VHS-filtered) + jumpscare on catch
+- Battery / objective pickups in the world (`addBattery(player, amount)` is ready)
+- A real exit door that unlocks once all objectives are collected
+- VHS post-processing (scanlines, chromatic aberration, grain)
+- Downed/revive system so co-op players can save each other instead of instant death

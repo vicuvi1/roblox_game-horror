@@ -46,6 +46,24 @@ export type GameConfig = {
 	FlashlightBrightness: number, -- SpotLight Brightness
 	FlashlightColor: Color3, -- Slightly warm/dim for retro feel
 
+	-- World / spawns
+	CreateDevArena: boolean, -- Build a test floor + lighting so you can play instantly
+	LobbySpawn: Vector3, -- Where players wait during Intermission / GameOver
+	ArenaCenter: Vector3, -- Center of the play space (mall)
+	ArenaSize: Vector3, -- Size of the dev arena floor
+
+	-- Objectives (collect them all to win the round)
+	NumObjectives: number, -- How many collectibles spawn per round
+	ObjectiveHoldDuration: number, -- Seconds to hold the "E" prompt to collect
+
+	-- Monster AI (the stalker)
+	MonsterDetectionRange: number, -- How far it can spot a player (studs)
+	MonsterCatchRange: number, -- How close before it catches (kills) you
+	MonsterPatrolSpeed: number, -- WalkSpeed while wandering
+	MonsterChaseSpeed: number, -- WalkSpeed while chasing a player
+	MonsterRepathInterval: number, -- Seconds between path recalculations
+	MonsterSearchTime: number, -- Seconds it hunts your last-known spot after losing you
+
 	-- Client feel
 	SprintFov: number, -- Camera FOV while sprinting (default is 70)
 	DefaultFov: number, -- Camera FOV while walking
@@ -89,6 +107,24 @@ local Config: GameConfig = {
 	FlashlightAngle = 50,
 	FlashlightBrightness = 2,
 	FlashlightColor = Color3.fromRGB(255, 244, 214), -- warm, slightly sickly
+
+	-- World / spawns
+	CreateDevArena = true, -- set false once you have a real mall map
+	LobbySpawn = Vector3.new(0, 5, 0),
+	ArenaCenter = Vector3.new(0, 5, 250),
+	ArenaSize = Vector3.new(220, 1, 220),
+
+	-- Objectives
+	NumObjectives = 5,
+	ObjectiveHoldDuration = 1.5,
+
+	-- Monster AI
+	MonsterDetectionRange = 70,
+	MonsterCatchRange = 6,
+	MonsterPatrolSpeed = 8,
+	MonsterChaseSpeed = 21, -- slightly slower than SprintSpeed(22): you CAN escape
+	MonsterRepathInterval = 0.4,
+	MonsterSearchTime = 6,
 
 	-- Client feel
 	SprintFov = 78,

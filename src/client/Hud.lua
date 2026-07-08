@@ -32,6 +32,9 @@ export type HudData = {
 	maxBattery: number,
 	isSprinting: boolean,
 	flashlightOn: boolean,
+	objectivesCollected: number,
+	objectivesTotal: number,
+	message: string,
 }
 
 -- Retro palette.
@@ -147,6 +150,35 @@ function Hud.create()
 	timerLabel.Text = "00:00"
 	timerLabel.Parent = topBlock
 
+	-- Objective tracker, just under the timer.
+	local objectiveLabel = Instance.new("TextLabel")
+	objectiveLabel.Name = "Objectives"
+	objectiveLabel.BackgroundTransparency = 1
+	objectiveLabel.AnchorPoint = Vector2.new(0.5, 0)
+	objectiveLabel.Position = UDim2.new(0.5, 0, 0, 66)
+	objectiveLabel.Size = UDim2.new(0, 300, 0, 22)
+	objectiveLabel.Font = FONT
+	objectiveLabel.TextColor3 = COLOR_STAMINA
+	objectiveLabel.TextSize = 18
+	objectiveLabel.TextXAlignment = Enum.TextXAlignment.Center
+	objectiveLabel.Text = ""
+	objectiveLabel.Parent = screenGui
+
+	-- Big center message for round results (ESCAPED / CAUGHT / TIME UP).
+	local messageLabel = Instance.new("TextLabel")
+	messageLabel.Name = "Message"
+	messageLabel.BackgroundTransparency = 1
+	messageLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	messageLabel.Position = UDim2.new(0.5, 0, 0.4, 0)
+	messageLabel.Size = UDim2.new(0, 600, 0, 80)
+	messageLabel.Font = FONT
+	messageLabel.TextColor3 = COLOR_REC
+	messageLabel.TextSize = 64
+	messageLabel.TextStrokeTransparency = 0.5
+	messageLabel.Text = ""
+	messageLabel.Visible = false
+	messageLabel.Parent = screenGui
+
 	-- Bottom-left resource bars.
 	local staminaFill, staminaLabel = createBar(screenGui, "STAMINA", COLOR_STAMINA, -56)
 	local batteryFill, batteryLabel = createBar(screenGui, "BATTERY", COLOR_BATTERY, -24)
@@ -175,6 +207,26 @@ function Hud.create()
 
 		-- Turn the battery bar red-ish when it's nearly dead.
 		batteryFill.BackgroundColor3 = if batteryRatio < 0.2 then COLOR_REC else COLOR_BATTERY
+
+		-- Objective tracker (only meaningful during a round).
+		if data.state == "InGame" and data.objectivesTotal > 0 then
+			objectiveLabel.Text = string.format(
+				"OBJECTIVES %d/%d",
+				data.objectivesCollected,
+				data.objectivesTotal
+			)
+		else
+			objectiveLabel.Text = ""
+		end
+
+		-- Big center result message (ESCAPED / CAUGHT / TIME UP).
+		if data.message ~= "" then
+			messageLabel.Text = data.message
+			messageLabel.TextColor3 = if data.message == "ESCAPED" then COLOR_STAMINA else COLOR_REC
+			messageLabel.Visible = true
+		else
+			messageLabel.Visible = false
+		end
 	end
 
 	-- Drive the blinking REC dot. Call this every frame from the client script.
