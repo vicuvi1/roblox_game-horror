@@ -1,247 +1,211 @@
 --!strict
 --[[
-	GameConfig.lua
+	GameConfig.lua — ALL tunable constants for the hide-and-survive horror game.
 	------------------------------------------------------------------
-	Central configuration for "90s Abandoned Shopping Mall" (Co-Op Horror).
-	ModuleScript holding data only; returns one frozen table. Tune the whole
-	game from HERE (it's frozen, so runtime code can't change it by accident).
+	One frozen table, grouped by system. No magic numbers anywhere else:
+	every speed, range, cooldown, volume and chance lives HERE so the whole
+	game can be balanced from a single file.
 ------------------------------------------------------------------ ]]
 
-export type GameConfig = {
-	-- Round / match pacing (seconds)
-	MatchLength: number,
-	IntermissionLength: number,
-	GameOverLength: number,
-
-	-- Player count gates
-	MinPlayers: number,
-	MaxPlayers: number,
-
-	-- Movement
-	WalkSpeed: number,
-	SprintSpeed: number,
-
-	-- Stamina
-	MaxStamina: number,
-	StaminaDrainRate: number,
-	StaminaRegenRate: number,
-	StaminaRegenDelay: number,
-
-	-- Flashlight / battery
-	MaxBattery: number,
-	BatteryDrainRate: number,
-	BatteryRegenRate: number,
-	FlashlightRange: number,
-	FlashlightAngle: number,
-	FlashlightBrightness: number,
-	FlashlightColor: Color3,
-
-	-- World / spawns
-	CreateDevArena: boolean,
-	LobbySpawn: Vector3,
-	ArenaCenter: Vector3,
-	ArenaSize: Vector3,
-
-	-- Mall layout (designed level built from parts)
-	WallHeight: number,
-	WallThickness: number,
-	NumStoreBlocks: number, -- interior blocks that form aisles / cover
-	NumCeilingLights: number, -- flickering fluorescents
-	LightFlickerChance: number, -- 0..1 chance per tick a light flickers
-
-	-- Objectives
-	NumObjectives: number,
-	ObjectiveHoldDuration: number,
-
-	-- Exit
-	ExitReachRange: number, -- how close to the exit door counts as "escaped"
-
-	-- DOORS-style rooms
-	RoomCount: number, -- number of rooms/doors to clear (last door = escape)
-	RoomWidth: number,
-	RoomLength: number,
-	RoomHeight: number,
-	DoorwayWidth: number,
-	DoorwayHeight: number,
-	FirstRoomZ: number, -- world Z of room 1's center
-	ClosetsPerRoom: number,
-	DoorHoldDuration: number, -- seconds holding E to open a door
-
-	-- Rush entity (screams down the hallway; hide in a closet or die)
-	RushMinInterval: number,
-	RushMaxInterval: number,
-	RushWarning: number, -- seconds of light-flicker warning before it arrives
-	RushSpeed: number, -- studs/second down the corridor
-	RushKillBand: number, -- how close (studs) it must pass to catch you
-
-	-- Monster AI
-	MonsterDetectionRange: number,
-	MonsterHearingRange: number, -- extra range for detecting SPRINTING players (no LoS needed)
-	MonsterCatchRange: number,
-	MonsterPatrolSpeed: number,
-	MonsterChaseSpeed: number,
-	MonsterRepathInterval: number,
-	MonsterSearchTime: number,
-	MonsterGrowlRange: number, -- within this range the growl sound plays
-
-	-- Atmosphere / lighting
-	FogEnd: number,
-	AtmosphereDensity: number,
-	AtmosphereHaze: number,
-
-	-- Client feel
-	SprintFov: number,
-	DefaultFov: number,
-
-	-- HUD broadcast
-	HudUpdateRate: number,
-
-	-- Power-outage scare events (all fluorescents cut out briefly)
-	PowerOutageMinInterval: number,
-	PowerOutageMaxInterval: number,
-	PowerOutageDuration: number,
-
-	-- Sound asset ids (leave "" to disable; fill with rbxassetid://NUMBER).
-	-- rbxasset:// paths are engine built-ins and ALWAYS work; rbxassetid://
-	-- numbers are Marketplace audio (swap freely for your own).
-	Sounds: {
-		Ambient: string,
-		Heartbeat: string,
-		Growl: string,
-		Jumpscare: string,
-		Collect: string,
-		DoorOpen: string,
-		Footstep: string,
-		PowerDown: string,
-		Rush: string,
-	},
-
-	-- Networking
-	RemoteFolderName: string,
-	SprintRemoteName: string,
-	FlashlightRemoteName: string,
-	HudRemoteName: string,
-	EventRemoteName: string, -- server -> client one-shot FX events (jumpscare, etc.)
-}
-
-local Config: GameConfig = {
-	-- Round pacing
-	MatchLength = 300,
+local Config = {
+	----------------------------------------------------------------
+	-- ROUND / PACING (seconds)
+	----------------------------------------------------------------
+	MatchLength = 420, -- 7 minute rounds (spec: 5-8 min pacing)
 	IntermissionLength = 12,
-	GameOverLength = 8,
-
-	-- Players
+	GameOverLength = 14, -- longer so players can read the results screen
 	MinPlayers = 1,
 	MaxPlayers = 4,
+	ExtractionOpensAt = 150, -- extraction door unlocks when timeLeft <= this
 
-	-- Movement
+	----------------------------------------------------------------
+	-- MOVEMENT
+	----------------------------------------------------------------
 	WalkSpeed = 12,
 	SprintSpeed = 22,
+	CrouchSpeed = 6,
+	ExhaustedSpeedMult = 0.8, -- while exhausted, walk speed is reduced
 
-	-- Stamina
+	----------------------------------------------------------------
+	-- STAMINA (exhaustion = loud breathing + slower until recovered)
+	----------------------------------------------------------------
 	MaxStamina = 100,
-	StaminaDrainRate = 25,
-	StaminaRegenRate = 15,
-	StaminaRegenDelay = 1.5,
+	StaminaDrainRate = 22, -- per second while sprinting
+	StaminaRegenRate = 14, -- per second while not sprinting
+	StaminaRegenDelay = 1.4,
+	ExhaustedRecoverAt = 30, -- exhausted until stamina climbs back to this
+	VaultStaminaCost = 15,
 
-	-- Flashlight
+	----------------------------------------------------------------
+	-- HOLD BREATH (silences breathing; short duration + cooldown)
+	----------------------------------------------------------------
+	BreathDuration = 4, -- max seconds of held breath
+	BreathCooldown = 6, -- lockout after releasing
+	BreathHiddenDiscoveryMult = 0.3, -- discovery chance mult while holding breath
+
+	----------------------------------------------------------------
+	-- FLASHLIGHT
+	----------------------------------------------------------------
 	MaxBattery = 100,
-	BatteryDrainRate = 4,
-	BatteryRegenRate = 0,
-	FlashlightRange = 90,
-	FlashlightAngle = 65,
-	FlashlightBrightness = 5,
-	FlashlightColor = Color3.fromRGB(255, 244, 214),
+	BatteryDrainRate = 3,
+	FlashlightRange = 55,
+	FlashlightAngle = 55,
+	FlashlightBrightness = 3,
+	FlashlightColor = Color3.fromRGB(255, 240, 205),
+	FlashlightDetectionMult = 1.5, -- enemy sees you farther with light on
 
-	-- World
-	CreateDevArena = true,
-	LobbySpawn = Vector3.new(0, 5, 0),
-	ArenaCenter = Vector3.new(0, 5, 250),
-	ArenaSize = Vector3.new(220, 1, 220),
+	----------------------------------------------------------------
+	-- NOISE MODEL (loudness = radius in studs the enemy can hear)
+	----------------------------------------------------------------
+	NoiseRun = 40,
+	NoiseWalk = 20,
+	NoiseCrouch = 7,
+	NoiseVault = 18,
+	NoiseDoorFast = 35,
+	NoiseDoorSlow = 8,
+	NoiseDoorSlam = 45, -- enemy bashing a door open
+	NoiseThrowImpact = 55, -- glass shatter decoy
+	NoiseBarricade = 40,
+	ExhaustedBreathAura = 12, -- constant audible radius while exhausted
+	-- Per-surface multipliers (keyed by Enum.Material name)
+	SurfaceNoise = {
+		WoodPlanks = 1.3, -- creaky hallway boards
+		Wood = 1.2,
+		Marble = 1.25, -- kitchen tile click
+		Fabric = 0.55, -- carpet muffle
+		Metal = 1.5, -- vents / maintenance clang
+		Concrete = 1.0,
+		Slate = 1.1,
+	} :: { [string]: number },
+	-- Per-zone acoustics (echoing basements carry sound farther)
+	ZoneAcoustics = {
+		Maintenance = 1.4,
+		Vents = 1.3,
+		Common = 0.8, -- open space + ambient masking
+	} :: { [string]: number },
 
-	-- Mall layout
-	WallHeight = 22,
-	WallThickness = 2,
-	NumStoreBlocks = 10,
-	NumCeilingLights = 14,
-	LightFlickerChance = 0.06,
+	----------------------------------------------------------------
+	-- ENEMY AI
+	----------------------------------------------------------------
+	EnemySightRange = 55,
+	EnemySightFovDeg = 130, -- vision cone total angle
+	EnemyCrouchSightMult = 0.55, -- crouched players are seen from closer only
+	EnemyPatrolSpeed = 9,
+	EnemyInvestigateSpeed = 12,
+	EnemyHuntSpeed = 21, -- just under SprintSpeed: escape IS possible
+	EnemyAttackRange = 4.5,
+	EnemyAttackWindup = 0.35,
+	EnemyRepath = 0.35,
+	EnemyMemorySize = 3, -- remembers last N player positions
+	EnemySearchSpotChecks = 2, -- hiding spots checked per search
+	EnemySearchDwell = 1.6, -- pause at each checked location
+	EnemyLoseSightGrace = 2.5, -- keeps hunting this long after losing sight
+	EnemyNearMissRadius = 12, -- undetected pass within this = "close call"
+	EnemyNearMissCooldown = 10,
+	-- Adaptive difficulty: speed creep while players stay undetected
+	AdaptiveStep = 0.02, -- +2% speed per undetected interval
+	AdaptiveInterval = 30,
+	AdaptiveMax = 0.15, -- cap at +15%
+	EnemyDoorBashHits = 3, -- bangs to break a barricade
+	EnemyDoorBashDelay = 1.6,
 
-	-- Objectives
-	NumObjectives = 5,
-	ObjectiveHoldDuration = 1.5,
+	----------------------------------------------------------------
+	-- TENSION METER (0..100, per player, drives audio/visual feedback)
+	----------------------------------------------------------------
+	TensionProximityRange = 60, -- distance term ramps inside this
+	TensionProximityWeight = 50,
+	TensionHuntTargetBoost = 45,
+	TensionHuntOtherBoost = 20,
+	TensionInvestigateNearBoost = 15,
+	TensionOpenZoneBoost = 10, -- standing exposed in the Common area
+	TensionNearMissSpike = 35,
+	TensionRiseRate = 40, -- per second toward target
+	TensionFallRate = 12,
 
-	-- Exit
-	ExitReachRange = 10,
+	----------------------------------------------------------------
+	-- HIDING
+	----------------------------------------------------------------
+	HidingDiscoveryCheckRange = 5, -- enemy must get this close to check a spot
 
-	-- DOORS-style rooms
-	RoomCount = 12,
-	RoomWidth = 32,
-	RoomLength = 40,
-	RoomHeight = 18,
-	DoorwayWidth = 10,
-	DoorwayHeight = 12,
-	FirstRoomZ = 60,
-	ClosetsPerRoom = 2,
-	DoorHoldDuration = 0.4,
+	----------------------------------------------------------------
+	-- THROWABLES
+	----------------------------------------------------------------
+	ThrowSpeed = 70,
+	ThrowArc = 14, -- upward velocity component
+	ThrowableCount = 6, -- bottles scattered around the map
 
-	-- Rush
-	RushMinInterval = 22,
-	RushMaxInterval = 45,
-	RushWarning = 3.5,
-	RushSpeed = 85,
-	RushKillBand = 7,
+	----------------------------------------------------------------
+	-- ATMOSPHERE
+	----------------------------------------------------------------
+	FogEnd = 120,
+	AtmosphereDensity = 0.3,
+	AtmosphereHaze = 1.8,
+	FlickerBaseChance = 0.05, -- per-tick flicker odds for damaged fixtures
+	EnemyProximityFlickerRange = 30, -- lights stutter harder when it's near
+	StingerMinInterval = 20, -- random environmental one-shots (distant bangs)
+	StingerMaxInterval = 50,
 
-	-- Monster AI
-	MonsterDetectionRange = 70,
-	MonsterHearingRange = 45,
-	MonsterCatchRange = 6,
-	MonsterPatrolSpeed = 8,
-	MonsterChaseSpeed = 21,
-	MonsterRepathInterval = 0.4,
-	MonsterSearchTime = 6,
-	MonsterGrowlRange = 35,
-
-	-- Atmosphere (readable but moody — raise FogEnd if you want to see farther)
-	FogEnd = 110,
-	AtmosphereDensity = 0.32,
-	AtmosphereHaze = 2,
-
-	-- Client feel
-	SprintFov = 78,
+	----------------------------------------------------------------
+	-- CLIENT FEEL
+	----------------------------------------------------------------
 	DefaultFov = 70,
-
-	-- HUD
+	SprintFov = 78,
+	PeekOffset = 2.2, -- studs of sideways camera lean
+	PeekTilt = 12, -- degrees of roll while peeking
+	CrouchCameraDrop = 1.3,
 	HudUpdateRate = 0.1,
 
-	-- Power outages
-	PowerOutageMinInterval = 25,
-	PowerOutageMaxInterval = 55,
-	PowerOutageDuration = 1.4,
-
-	-- Sounds. Ambient + Jumpscare are Marketplace ids (VERIFY they play; if
-	-- silent, swap for your own from Creator Store -> Audio). Collect/Footstep
-	-- are engine built-ins that always work.
+	----------------------------------------------------------------
+	-- SOUND IDS — placeholders. rbxasset:// engine files ALWAYS work;
+	-- swap the "" / marketplace ids for real horror audio when you have it.
+	----------------------------------------------------------------
 	Sounds = {
-		Ambient = "rbxassetid://140704980462451", -- "Midnight Litany of Drones"
+		AmbientDefault = "rbxassetid://140704980462451",
 		Heartbeat = "",
-		Growl = "",
-		Jumpscare = "rbxassetid://6754147732", -- "Horror Jumpscare Sound Effect"
-		Collect = "rbxasset://sounds/electronicpingshort.wav",
-		DoorOpen = "rbxasset://sounds/electronicpingshort.wav",
 		Footstep = "rbxasset://sounds/action_footsteps_plastic.mp3",
-		PowerDown = "rbxasset://sounds/electronicpingshort.wav",
-		Rush = "rbxassetid://140704980462451", -- swap for a proper Rush roar
+		DoorCreak = "rbxasset://sounds/electronicpingshort.wav",
+		GlassBreak = "rbxasset://sounds/electronicpingshort.wav",
+		DetectionStinger = "rbxassetid://6754147732",
+		Jumpscare = "rbxassetid://6754147732",
+		EnemyGrowl = "",
+		Stinger = "rbxasset://sounds/electronicpingshort.wav",
+		Vault = "rbxasset://sounds/action_jump.mp3",
+		Barricade = "rbxasset://sounds/impact_wood.mp3",
 	},
 
-	-- Networking
+	----------------------------------------------------------------
+	-- ANIMATION IDS — all placeholders ("" = skipped safely via pcall).
+	-- Drop real rbxassetid:// ids in as you produce/buy animations.
+	----------------------------------------------------------------
+	Animations = {
+		PlayerCrouchWalk = "",
+		PlayerPeek = "",
+		PlayerVault = "",
+		PlayerHideEnter = "",
+		PlayerHoldBreath = "",
+		EnemyIdle = "",
+		EnemyPatrol = "",
+		EnemyInvestigate = "",
+		EnemyHunt = "",
+		EnemyAttack = "",
+		EnemyNotice = "",
+		EnemySearch = "",
+	},
+
+	----------------------------------------------------------------
+	-- NETWORKING
+	----------------------------------------------------------------
 	RemoteFolderName = "Remotes",
-	SprintRemoteName = "SprintRequest",
-	FlashlightRemoteName = "FlashlightRequest",
-	HudRemoteName = "HudUpdate",
-	EventRemoteName = "GameEvent",
+	ActionRemoteName = "ActionRequest", -- client -> server {action, on}
+	ThrowRemoteName = "ThrowRequest", -- client -> server (direction)
+	HudRemoteName = "HudUpdate", -- server -> client (10x/sec state)
+	EventRemoteName = "GameEvent", -- server -> client one-shots (stingers, results)
 }
 
-table.freeze(Config)
+table.freeze(Config.SurfaceNoise)
+table.freeze(Config.ZoneAcoustics)
 table.freeze(Config.Sounds)
+table.freeze(Config.Animations)
+table.freeze(Config)
 
 return Config
