@@ -87,25 +87,27 @@ local Config = {
 	----------------------------------------------------------------
 	-- ENEMY AI
 	----------------------------------------------------------------
-	EnemySightRange = 55,
-	EnemySightFovDeg = 130, -- vision cone total angle
+	EnemySightRange = 66, -- sees you across whole rooms now
+	EnemySightFovDeg = 150, -- near-panoramic vision cone
 	EnemyCrouchSightMult = 0.55, -- crouched players are seen from closer only
-	EnemyPatrolSpeed = 9,
-	EnemyInvestigateSpeed = 12,
-	EnemyHuntSpeed = 21, -- just under SprintSpeed: escape IS possible
-	EnemyAttackRange = 4.5,
-	EnemyAttackWindup = 0.35,
-	EnemyRepath = 0.35,
-	EnemyMemorySize = 3, -- remembers last N player positions
-	EnemySearchSpotChecks = 2, -- hiding spots checked per search
-	EnemySearchDwell = 1.6, -- pause at each checked location
-	EnemyLoseSightGrace = 2.5, -- keeps hunting this long after losing sight
+	EnemyPatrolSpeed = 10,
+	EnemyInvestigateSpeed = 14,
+	EnemyHuntSpeed = 23, -- ABOVE sprint (22): you can't just outrun it — break LoS
+	EnemyLungeSpeed = 31, -- burst when it's right behind you
+	EnemyLungeRange = 13, -- distance at which the lunge kicks in
+	EnemyAttackRange = 5.5,
+	EnemyAttackWindup = 0.22, -- snappier, deadlier strikes
+	EnemyRepath = 0.2, -- reacts + moves smoother
+	EnemyMemorySize = 4, -- remembers last N player positions
+	EnemySearchSpotChecks = 3, -- hiding spots checked per search
+	EnemySearchDwell = 1.3, -- pause at each checked location
+	EnemyLoseSightGrace = 4, -- relentless: keeps pressing after losing sight
 	EnemyNearMissRadius = 12, -- undetected pass within this = "close call"
 	EnemyNearMissCooldown = 10,
 	-- Adaptive difficulty: speed creep while players stay undetected
-	AdaptiveStep = 0.02, -- +2% speed per undetected interval
-	AdaptiveInterval = 30,
-	AdaptiveMax = 0.15, -- cap at +15%
+	AdaptiveStep = 0.03, -- +3% speed per undetected interval
+	AdaptiveInterval = 25,
+	AdaptiveMax = 0.25, -- cap at +25%
 	EnemyDoorBashHits = 3, -- bangs to break a barricade
 	EnemyDoorBashDelay = 1.6,
 
@@ -144,6 +146,14 @@ local Config = {
 	EnemyProximityFlickerRange = 30, -- lights stutter harder when it's near
 	StingerMinInterval = 20, -- random environmental one-shots (distant bangs)
 	StingerMaxInterval = 50,
+
+	----------------------------------------------------------------
+	-- GORE / IMPACT
+	----------------------------------------------------------------
+	BloodBurstCount = 60, -- particles per catch
+	BloodPoolCount = 5, -- splatter decals dropped at a kill
+	BloodPoolLifetime = 45, -- seconds before splatters clean up
+	BloodColor = Color3.fromRGB(90, 6, 8),
 
 	----------------------------------------------------------------
 	-- CLIENT FEEL

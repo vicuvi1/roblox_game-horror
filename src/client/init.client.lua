@@ -131,7 +131,7 @@ eventRemote.OnClientEvent:Connect(function(event: any)
 		fx.flinch()
 	elseif event.type == "jumpscare" then
 		SoundManager.jumpscare()
-		fx.jumpscare()
+		fx.jumpscare(event.enemyPos) -- whips the camera to the killer + blood
 	elseif event.type == "results" then
 		ui.showResults(event)
 	end

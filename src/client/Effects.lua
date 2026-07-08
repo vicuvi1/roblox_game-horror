@@ -95,6 +95,32 @@ function Effects.create()
 	flash.ZIndex = 10
 	flash.Parent = gui
 
+	-- Blood layer: dark-red blobs (rounded frames) that splatter across the
+	-- screen on a catch. Asset-free — swap for a blood texture ImageLabel later.
+	local bloodLayer = Instance.new("Frame")
+	bloodLayer.BackgroundTransparency = 1
+	bloodLayer.Size = UDim2.new(1, 0, 1, 0)
+	bloodLayer.ZIndex = 11
+	bloodLayer.Visible = false
+	bloodLayer.Parent = gui
+	local bloodBlobs: { Frame } = {}
+	for i = 1, 14 do
+		local blob = Instance.new("Frame")
+		blob.BackgroundColor3 = Color3.fromRGB(70 + math.random(0, 30), 4, 6)
+		blob.BorderSizePixel = 0
+		blob.AnchorPoint = Vector2.new(0.5, 0.5)
+		blob.Position = UDim2.new(math.random(), 0, math.random(), 0)
+		local sz = 0.08 + math.random() * 0.22
+		blob.Size = UDim2.new(sz, 0, sz, 0)
+		blob.Rotation = math.random(0, 360)
+		blob.ZIndex = 11
+		blob.Parent = bloodLayer
+		local uic = Instance.new("UICorner")
+		uic.CornerRadius = UDim.new(0.5, 0)
+		uic.Parent = blob
+		table.insert(bloodBlobs, blob)
+	end
+
 	-- State.
 	local tension = 0 -- smoothed 0..1
 	local tensionTarget = 0
@@ -104,6 +130,8 @@ function Effects.create()
 	local flinchTimer = 0
 	local bobPhase = 0
 	local lastStepSign = 1
+	local bloodTimer = 0 -- blood splatter fade
+	local snapTarget: Vector3? = nil -- camera whips toward the killer
 
 	local self = {}
 	-- Assigned by the controller: called on each head-bob footfall.
@@ -117,8 +145,16 @@ function Effects.create()
 		hunted = active
 	end
 
-	function self.jumpscare()
-		jumpscareTimer = 0.7
+	function self.jumpscare(enemyPos: Vector3?)
+		jumpscareTimer = 0.9
+		bloodTimer = 2.2
+		snapTarget = enemyPos -- camera will whip to face the killer
+		bloodLayer.Visible = true
+		for _, blob in bloodBlobs do
+			-- Re-scatter the splatter each death so it never looks identical.
+			blob.Position = UDim2.new(math.random(), 0, math.random(), 0)
+			blob.Rotation = math.random(0, 360)
+		end
 	end
 
 	-- Near-miss: a short sharp camera flinch — the "it walked right past me"
@@ -148,12 +184,24 @@ function Effects.create()
 		-- Jumpscare flash decay.
 		if jumpscareTimer > 0 then
 			jumpscareTimer -= dt
-			flash.BackgroundTransparency = 1 - math.clamp(jumpscareTimer / 0.7, 0, 1)
+			flash.BackgroundTransparency = 1 - 0.85 * math.clamp(jumpscareTimer / 0.9, 0, 1)
 		else
 			flash.BackgroundTransparency = 1
 		end
 		if flinchTimer > 0 then
 			flinchTimer -= dt
+		end
+
+		-- Blood splatter fade (stays a beat, then drains away).
+		if bloodTimer > 0 then
+			bloodTimer -= dt
+			local a = math.clamp(bloodTimer / 2.2, 0, 1)
+			for _, blob in bloodBlobs do
+				blob.BackgroundTransparency = 1 - a
+			end
+		elseif bloodLayer.Visible then
+			bloodLayer.Visible = false
+			snapTarget = nil
 		end
 
 		-- Camera: head-bob + tension shake + flinch/jumpscare slams.
@@ -188,6 +236,13 @@ function Effects.create()
 				(math.random() - 0.5) * shake * 0.05
 			)
 			camera.CFrame = camera.CFrame * offset
+		end
+
+		-- Death whip: force the view onto the killer during the jumpscare, even
+		-- after the character has died and the humanoid is gone.
+		if camera and snapTarget and jumpscareTimer > 0 then
+			local look = CFrame.lookAt(camera.CFrame.Position, snapTarget :: Vector3)
+			camera.CFrame = camera.CFrame:Lerp(look, math.min(1, dt * 12))
 		end
 	end
 

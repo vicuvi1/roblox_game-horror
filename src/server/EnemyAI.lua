@@ -38,6 +38,7 @@ local DoorSystem = require(script.Parent:WaitForChild("DoorSystem"))
 local HidingSpotSystem = require(script.Parent:WaitForChild("HidingSpotSystem"))
 local MapManager = require(script.Parent:WaitForChild("MapManager"))
 local PlayerService = require(script.Parent:WaitForChild("PlayerService"))
+local Gore = require(script.Parent:WaitForChild("Gore"))
 
 local EnemyAI = {}
 
@@ -310,7 +311,16 @@ end
 -- MOVEMENT (pathfinding + door forcing)
 ------------------------------------------------------------------
 
-local function stepToward(goal: Vector3)
+-- Path-follow state: we store a whole path and walk its waypoints, only
+-- recomputing when it goes stale or the goal drifts. Following a stored path
+-- (instead of recomputing to waypoint[2] every tick) is what makes the enemy
+-- GLIDE smoothly instead of stuttering.
+local pathWaypoints: { PathWaypoint } = {}
+local pathIndex = 1
+local pathGoal: Vector3? = nil
+local lastPathTime = 0
+
+local function moveTo(goal: Vector3)
 	local myRoot = root
 	local hum = humanoid
 	if not myRoot or not hum then
@@ -320,26 +330,44 @@ local function stepToward(goal: Vector3)
 	-- A closed door directly ahead? Slam through it (loud, terrifying, fair).
 	local ahead = myRoot.Position + myRoot.CFrame.LookVector * 4
 	local doorState = DoorSystem.nearestClosedDoor(ahead, 5)
-	if doorState then
-		if not DoorSystem.enemyForce(doorState) then
-			task.wait(GameConfig.EnemyDoorBashDelay) -- bashing a barricade takes time
+	if doorState and not DoorSystem.enemyForce(doorState) then
+		task.wait(GameConfig.EnemyDoorBashDelay) -- bashing a barricade takes time
+		return
+	end
+
+	local stale = #pathWaypoints == 0
+		or pathGoal == nil
+		or (goal - (pathGoal :: Vector3)).Magnitude > 6
+		or (os.clock() - lastPathTime) > 0.7
+	if stale then
+		local path = PathfindingService:CreatePath({ AgentRadius = 2.2, AgentHeight = 8, AgentCanJump = false })
+		local ok = pcall(function()
+			path:ComputeAsync(myRoot.Position, goal)
+		end)
+		if ok and path.Status == Enum.PathStatus.Success then
+			pathWaypoints = path:GetWaypoints()
+			pathIndex = math.min(2, #pathWaypoints)
+			pathGoal = goal
+			lastPathTime = os.clock()
+		else
+			pathWaypoints = {}
+			hum:MoveTo(goal)
 			return
 		end
 	end
 
-	local path = PathfindingService:CreatePath({ AgentRadius = 2, AgentHeight = 8, AgentCanJump = false })
-	local ok = pcall(function()
-		path:ComputeAsync(myRoot.Position, goal)
-	end)
-	if ok and path.Status == Enum.PathStatus.Success then
-		local waypoints = path:GetWaypoints()
-		local nextWp = waypoints[2]
-		if nextWp then
-			hum:MoveTo(nextWp.Position)
-			return
-		end
+	local wp = pathWaypoints[pathIndex]
+	if not wp then
+		hum:MoveTo(goal)
+		return
 	end
-	hum:MoveTo(goal) -- fallback: straight line
+	-- Advance past waypoints we've reached (compare on the horizontal plane).
+	local flat = Vector3.new(myRoot.Position.X, wp.Position.Y, myRoot.Position.Z)
+	if (flat - wp.Position).Magnitude < 3.5 then
+		pathIndex += 1
+		wp = pathWaypoints[pathIndex]
+	end
+	hum:MoveTo(if wp then wp.Position else goal)
 end
 
 ------------------------------------------------------------------
@@ -374,6 +402,10 @@ local function kill(player: Player)
 	local hum = character and character:FindFirstChildOfClass("Humanoid")
 	if hum and hum.Health > 0 then
 		HidingSpotSystem.forceOut(player)
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		if hrp and hrp:IsA("BasePart") then
+			Gore.kill(hrp.Position) -- blood spray + splatter decals
+		end
 		hum.Health = 0
 		Signals.Caught:Fire(player)
 	end
@@ -419,12 +451,16 @@ local function runBrain()
 					searchQueue = { table.unpack(memory) }
 				end
 			else
-				stepToward(seenRoot.Position)
+				-- Lunge burst when it's right on top of you — the moment of terror.
+				hum.WalkSpeed = (if seenDist <= GameConfig.EnemyLungeRange
+					then GameConfig.EnemyLungeSpeed
+					else GameConfig.EnemyHuntSpeed) * speedMult
+				moveTo(seenRoot.Position)
 			end
 		elseif state == "Hunt" and os.clock() - lastSeenAt < GameConfig.EnemyLoseSightGrace then
 			-- Grace window: keep pressing the last position.
 			if memory[1] then
-				stepToward(memory[1])
+				moveTo(memory[1])
 			end
 		elseif state == "Hunt" then
 			-- Lost them: transition into a believable search.
@@ -449,7 +485,7 @@ local function runBrain()
 				memory = {}
 				setState("Patrol", nil)
 			else
-				stepToward(goal)
+				moveTo(goal)
 				if (myRoot.Position - goal).Magnitude < 5 then
 					table.remove(searchQueue, 1)
 					-- Arrived: dwell, look around, and roll spot-discovery.
@@ -466,7 +502,7 @@ local function runBrain()
 			if not goal then
 				setState("Patrol", nil)
 			else
-				stepToward(goal)
+				moveTo(goal)
 				if (myRoot.Position - goal).Magnitude < 5 then
 					table.remove(memory, 1)
 					task.wait(GameConfig.EnemySearchDwell)
@@ -495,7 +531,7 @@ local function runBrain()
 			local refs = mapRefs
 			if refs then
 				local goal = refs.patrolPoints[patrolIndex]
-				stepToward(goal)
+				moveTo(goal)
 				if (myRoot.Position - goal).Magnitude < 6 then
 					patrolIndex = (patrolIndex % #refs.patrolPoints) + 1
 				end
@@ -534,6 +570,9 @@ function EnemyAI.start(refs: MapManager.MapRefs)
 	patrolIndex = 1
 	speedMult = 1
 	lastNearMiss = {}
+	pathWaypoints = {}
+	pathGoal = nil
+	Gore.init()
 
 	-- Spawn deep in Maintenance — far from the player spawn, so the first
 	-- encounter is heard before it is seen.

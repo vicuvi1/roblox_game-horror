@@ -32,14 +32,20 @@ function AtmosphereSystem.setEnemyProbe(fn: () -> Vector3?)
 end
 
 local function applyGlobalLighting()
+	-- FUTURE lighting = real-time shadows + per-pixel light + PBR response.
+	-- This is the single biggest "it looks real now" upgrade available in code.
+	Lighting.Technology = Enum.Technology.Future
 	Lighting.ClockTime = 2
-	Lighting.Brightness = 1.6
-	Lighting.Ambient = Color3.fromRGB(26, 24, 26)
-	Lighting.OutdoorAmbient = Color3.fromRGB(16, 16, 22)
+	Lighting.Brightness = 1.4
+	Lighting.Ambient = Color3.fromRGB(22, 20, 22)
+	Lighting.OutdoorAmbient = Color3.fromRGB(14, 14, 20)
 	Lighting.FogColor = Color3.fromRGB(10, 9, 11)
 	Lighting.FogStart = 0
 	Lighting.FogEnd = GameConfig.FogEnd
 	Lighting.GlobalShadows = true
+	Lighting.ShadowSoftness = 0.5 -- soft contact shadows (Future only)
+	Lighting.EnvironmentDiffuseScale = 0.25 -- grounds materials in the ambient
+	Lighting.EnvironmentSpecularScale = 0.5 -- wet/metal surfaces catch highlights
 
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
 	atmosphere.Density = GameConfig.AtmosphereDensity

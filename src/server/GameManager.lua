@@ -102,7 +102,9 @@ local function relaySignals()
 		eventRemote:FireClient(player, { type = "nearMiss" })
 	end)
 	Signals.Caught.Event:Connect(function(player: Player)
-		eventRemote:FireClient(player, { type = "jumpscare" })
+		-- Send the killer's position so the client can whip the camera to it.
+		local enemyPos = EnemyAI.info()
+		eventRemote:FireClient(player, { type = "jumpscare", enemyPos = enemyPos })
 	end)
 end
 
