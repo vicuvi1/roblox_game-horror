@@ -1,28 +1,20 @@
 --!strict
 --[[
-	Hud.lua  (CLIENT — VHS-styled heads-up display)
+	Hud.lua  (CLIENT — heads-up display, redesigned)
 	------------------------------------------------------------------
-	Builds the on-screen UI entirely in code (no manual GUI setup needed) and
-	exposes a single `update(data)` function that the client script calls every
-	time the server pushes fresh HUD state.
+	A cleaner, modern horror HUD built in code:
+	  * slim rounded STAMINA + BATTERY meters (bottom-left)
+	  * a minimal timer + objective counter (top-center)
+	  * an "EXIT UNLOCKED — RUN" banner when all objectives are done
+	  * a big result stamp (ESCAPED / CAUGHT / TIME UP)
 
-	Layout:
-	  - Top-center:  blinking "● REC", the game state, and a MM:SS timer.
-	  - Bottom-left: STAMINA bar (green) and BATTERY bar (amber).
-	Everything uses a monospace font + subtle scanline overlay for the retro
-	VHS look.
-
-	How to expand later:
-	  - Add an objective tracker under the timer.
-	  - Add a low-battery red flash when data.battery is near 0.
-	  - Swap Instance-built UI for a designed ScreenGui if you prefer Studio.
+	Exposes create() -> { update(data), tick(dt) }.
 ------------------------------------------------------------------ ]]
 
 local Players = game:GetService("Players")
 
 local Hud = {}
 
--- The payload shape the server sends (mirrors HudPayload in server/init.lua).
 export type HudData = {
 	state: string,
 	timeLeft: number,
@@ -35,207 +27,179 @@ export type HudData = {
 	objectivesCollected: number,
 	objectivesTotal: number,
 	message: string,
+	beingChased: boolean,
+	exitUnlocked: boolean,
 }
 
--- Retro palette.
-local COLOR_TEXT = Color3.fromRGB(220, 255, 220)
-local COLOR_REC = Color3.fromRGB(255, 60, 60)
-local COLOR_STAMINA = Color3.fromRGB(90, 220, 120)
-local COLOR_BATTERY = Color3.fromRGB(240, 200, 80)
-local COLOR_BAR_BG = Color3.fromRGB(20, 24, 20)
-local FONT = Enum.Font.Code -- monospace, reads as a camcorder OSD
+local FONT = Enum.Font.GothamMedium
+local FONT_BOLD = Enum.Font.GothamBold
+local COLOR_TEXT = Color3.fromRGB(235, 235, 240)
+local COLOR_DIM = Color3.fromRGB(150, 150, 160)
+local COLOR_STAMINA = Color3.fromRGB(90, 210, 140)
+local COLOR_BATTERY = Color3.fromRGB(240, 200, 90)
+local COLOR_DANGER = Color3.fromRGB(230, 60, 60)
+local COLOR_GOOD = Color3.fromRGB(90, 220, 140)
 
--- Convert seconds -> "MM:SS".
 local function formatTime(seconds: number): string
 	seconds = math.max(0, math.floor(seconds))
-	local minutes = math.floor(seconds / 60)
-	local secs = seconds % 60
-	return string.format("%02d:%02d", minutes, secs)
+	return string.format("%02d:%02d", math.floor(seconds / 60), seconds % 60)
 end
 
--- Make a labelled resource bar (returns the fill frame + the value label so
--- update() can resize/relabel them later).
-local function createBar(
-	parent: Instance,
-	title: string,
-	color: Color3,
-	yOffset: number
-): (Frame, TextLabel)
-	local container = Instance.new("Frame")
-	container.Name = title .. "Bar"
-	container.AnchorPoint = Vector2.new(0, 1)
-	container.Position = UDim2.new(0, 24, 1, yOffset)
-	container.Size = UDim2.new(0, 240, 0, 22)
-	container.BackgroundColor3 = COLOR_BAR_BG
-	container.BackgroundTransparency = 0.25
-	container.BorderSizePixel = 0
-	container.Parent = parent
+local function corner(parent: Instance, radius: number)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+end
+
+-- A slim labelled meter. Returns the fill frame + label.
+local function createMeter(parent: Instance, title: string, color: Color3, yOffset: number): (Frame, TextLabel)
+	local holder = Instance.new("Frame")
+	holder.Name = title
+	holder.AnchorPoint = Vector2.new(0, 1)
+	holder.Position = UDim2.new(0, 28, 1, yOffset)
+	holder.Size = UDim2.new(0, 210, 0, 26)
+	holder.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+	holder.BackgroundTransparency = 0.25
+	holder.BorderSizePixel = 0
+	holder.Parent = parent
+	corner(holder, 6)
 
 	local fill = Instance.new("Frame")
 	fill.Name = "Fill"
-	fill.Position = UDim2.new(0, 0, 0, 0)
 	fill.Size = UDim2.new(1, 0, 1, 0)
 	fill.BackgroundColor3 = color
 	fill.BorderSizePixel = 0
-	fill.Parent = container
+	fill.Parent = holder
+	corner(fill, 6)
 
 	local label = Instance.new("TextLabel")
-	label.Name = "Label"
 	label.BackgroundTransparency = 1
-	label.Size = UDim2.new(1, -8, 1, 0)
-	label.Position = UDim2.new(0, 8, 0, 0)
-	label.Font = FONT
-	label.TextColor3 = Color3.fromRGB(15, 20, 15)
-	label.TextSize = 14
+	label.Size = UDim2.new(1, -16, 1, 0)
+	label.Position = UDim2.new(0, 12, 0, 0)
+	label.Font = FONT_BOLD
+	label.TextColor3 = Color3.fromRGB(15, 18, 15)
+	label.TextSize = 13
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.Text = title
-	label.Parent = container
+	label.ZIndex = 2
+	label.Parent = holder
 
 	return fill, label
 end
 
--- Build the whole HUD once and return an object with an `update` method.
 function Hud.create()
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 
-	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "HorrorHUD"
-	screenGui.ResetOnSpawn = false -- survive respawns
-	screenGui.IgnoreGuiInset = true
-	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	screenGui.Parent = playerGui
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "HorrorHUD"
+	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.DisplayOrder = 40
+	gui.Parent = playerGui
 
-	-- Top-center status block (REC dot + state + timer).
-	local topBlock = Instance.new("Frame")
-	topBlock.Name = "TopBlock"
-	topBlock.AnchorPoint = Vector2.new(0.5, 0)
-	topBlock.Position = UDim2.new(0.5, 0, 0, 16)
-	topBlock.Size = UDim2.new(0, 280, 0, 48)
-	topBlock.BackgroundTransparency = 1
-	topBlock.Parent = screenGui
+	-- Top-center: timer.
+	local timer = Instance.new("TextLabel")
+	timer.Name = "Timer"
+	timer.AnchorPoint = Vector2.new(0.5, 0)
+	timer.Position = UDim2.new(0.5, 0, 0, 18)
+	timer.Size = UDim2.new(0, 200, 0, 34)
+	timer.BackgroundTransparency = 1
+	timer.Font = FONT_BOLD
+	timer.TextColor3 = COLOR_TEXT
+	timer.TextSize = 30
+	timer.Text = "00:00"
+	timer.Parent = gui
 
-	local recDot = Instance.new("TextLabel")
-	recDot.Name = "Rec"
-	recDot.BackgroundTransparency = 1
-	recDot.Position = UDim2.new(0, 0, 0, 0)
-	recDot.Size = UDim2.new(0, 90, 0, 22)
-	recDot.Font = FONT
-	recDot.TextColor3 = COLOR_REC
-	recDot.TextSize = 18
-	recDot.TextXAlignment = Enum.TextXAlignment.Center
-	recDot.Text = "● REC"
-	recDot.Parent = topBlock
+	-- Objective counter under the timer.
+	local objectives = Instance.new("TextLabel")
+	objectives.Name = "Objectives"
+	objectives.AnchorPoint = Vector2.new(0.5, 0)
+	objectives.Position = UDim2.new(0.5, 0, 0, 54)
+	objectives.Size = UDim2.new(0, 320, 0, 22)
+	objectives.BackgroundTransparency = 1
+	objectives.Font = FONT
+	objectives.TextColor3 = COLOR_DIM
+	objectives.TextSize = 16
+	objectives.Text = ""
+	objectives.Parent = gui
 
-	local stateLabel = Instance.new("TextLabel")
-	stateLabel.Name = "State"
-	stateLabel.BackgroundTransparency = 1
-	stateLabel.Position = UDim2.new(0, 90, 0, 0)
-	stateLabel.Size = UDim2.new(0, 190, 0, 22)
-	stateLabel.Font = FONT
-	stateLabel.TextColor3 = COLOR_TEXT
-	stateLabel.TextSize = 18
-	stateLabel.TextXAlignment = Enum.TextXAlignment.Center
-	stateLabel.Text = "INTERMISSION"
-	stateLabel.Parent = topBlock
+	-- "EXIT UNLOCKED" banner (hidden until unlocked).
+	local exitBanner = Instance.new("TextLabel")
+	exitBanner.Name = "ExitBanner"
+	exitBanner.AnchorPoint = Vector2.new(0.5, 0)
+	exitBanner.Position = UDim2.new(0.5, 0, 0, 80)
+	exitBanner.Size = UDim2.new(0, 420, 0, 26)
+	exitBanner.BackgroundTransparency = 1
+	exitBanner.Font = FONT_BOLD
+	exitBanner.TextColor3 = COLOR_GOOD
+	exitBanner.TextSize = 20
+	exitBanner.Text = ""
+	exitBanner.Visible = false
+	exitBanner.Parent = gui
 
-	local timerLabel = Instance.new("TextLabel")
-	timerLabel.Name = "Timer"
-	timerLabel.BackgroundTransparency = 1
-	timerLabel.Position = UDim2.new(0, 0, 0, 24)
-	timerLabel.Size = UDim2.new(1, 0, 0, 24)
-	timerLabel.Font = FONT
-	timerLabel.TextColor3 = COLOR_TEXT
-	timerLabel.TextSize = 22
-	timerLabel.TextXAlignment = Enum.TextXAlignment.Center
-	timerLabel.Text = "00:00"
-	timerLabel.Parent = topBlock
+	-- Center result stamp.
+	local message = Instance.new("TextLabel")
+	message.Name = "Message"
+	message.AnchorPoint = Vector2.new(0.5, 0.5)
+	message.Position = UDim2.new(0.5, 0, 0.42, 0)
+	message.Size = UDim2.new(0, 700, 0, 90)
+	message.BackgroundTransparency = 1
+	message.Font = FONT_BOLD
+	message.TextColor3 = COLOR_DANGER
+	message.TextSize = 72
+	message.TextStrokeTransparency = 0.6
+	message.Text = ""
+	message.Visible = false
+	message.Parent = gui
 
-	-- Objective tracker, just under the timer.
-	local objectiveLabel = Instance.new("TextLabel")
-	objectiveLabel.Name = "Objectives"
-	objectiveLabel.BackgroundTransparency = 1
-	objectiveLabel.AnchorPoint = Vector2.new(0.5, 0)
-	objectiveLabel.Position = UDim2.new(0.5, 0, 0, 66)
-	objectiveLabel.Size = UDim2.new(0, 300, 0, 22)
-	objectiveLabel.Font = FONT
-	objectiveLabel.TextColor3 = COLOR_STAMINA
-	objectiveLabel.TextSize = 18
-	objectiveLabel.TextXAlignment = Enum.TextXAlignment.Center
-	objectiveLabel.Text = ""
-	objectiveLabel.Parent = screenGui
+	local staminaFill, staminaLabel = createMeter(gui, "STAMINA", COLOR_STAMINA, -60)
+	local batteryFill, batteryLabel = createMeter(gui, "BATTERY", COLOR_BATTERY, -26)
 
-	-- Big center message for round results (ESCAPED / CAUGHT / TIME UP).
-	local messageLabel = Instance.new("TextLabel")
-	messageLabel.Name = "Message"
-	messageLabel.BackgroundTransparency = 1
-	messageLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-	messageLabel.Position = UDim2.new(0.5, 0, 0.4, 0)
-	messageLabel.Size = UDim2.new(0, 600, 0, 80)
-	messageLabel.Font = FONT
-	messageLabel.TextColor3 = COLOR_REC
-	messageLabel.TextSize = 64
-	messageLabel.TextStrokeTransparency = 0.5
-	messageLabel.Text = ""
-	messageLabel.Visible = false
-	messageLabel.Parent = screenGui
-
-	-- Bottom-left resource bars.
-	local staminaFill, staminaLabel = createBar(screenGui, "STAMINA", COLOR_STAMINA, -56)
-	local batteryFill, batteryLabel = createBar(screenGui, "BATTERY", COLOR_BATTERY, -24)
-
-	-- Blink the REC dot roughly twice a second using a simple accumulator.
-	local blinkAccumulator = 0
-	local recVisible = true
+	local blink = 0
 
 	local self = {}
 
-	-- Called on every server HUD push.
 	function self.update(data: HudData)
-		-- Timer + state text.
-		timerLabel.Text = formatTime(data.timeLeft)
-		stateLabel.Text = string.upper(data.state)
+		timer.Text = formatTime(data.timeLeft)
 
-		-- Stamina bar: scale the fill and show a percentage.
 		local staminaRatio = if data.maxStamina > 0 then data.stamina / data.maxStamina else 0
 		staminaFill.Size = UDim2.new(math.clamp(staminaRatio, 0, 1), 0, 1, 0)
-		staminaLabel.Text = string.format("STAMINA %d%%", math.floor(staminaRatio * 100 + 0.5))
+		staminaLabel.Text = string.format("STAMINA  %d%%", math.floor(staminaRatio * 100 + 0.5))
 
-		-- Battery bar.
 		local batteryRatio = if data.maxBattery > 0 then data.battery / data.maxBattery else 0
 		batteryFill.Size = UDim2.new(math.clamp(batteryRatio, 0, 1), 0, 1, 0)
-		batteryLabel.Text = string.format("BATTERY %d%%", math.floor(batteryRatio * 100 + 0.5))
+		batteryFill.BackgroundColor3 = if batteryRatio < 0.2 then COLOR_DANGER else COLOR_BATTERY
+		batteryLabel.Text = string.format("BATTERY  %d%%", math.floor(batteryRatio * 100 + 0.5))
 
-		-- Turn the battery bar red-ish when it's nearly dead.
-		batteryFill.BackgroundColor3 = if batteryRatio < 0.2 then COLOR_REC else COLOR_BATTERY
-
-		-- Objective tracker (only meaningful during a round).
 		if data.state == "InGame" and data.objectivesTotal > 0 then
-			objectiveLabel.Text = string.format(
-				"OBJECTIVES %d/%d",
+			objectives.Text = string.format(
+				"OBJECTIVES  %d / %d",
 				data.objectivesCollected,
 				data.objectivesTotal
 			)
+			objectives.Visible = true
 		else
-			objectiveLabel.Text = ""
+			objectives.Visible = false
 		end
 
-		-- Big center result message (ESCAPED / CAUGHT / TIME UP).
+		exitBanner.Visible = data.state == "InGame" and data.exitUnlocked
+		exitBanner.Text = "EXIT UNLOCKED — GET OUT!"
+
 		if data.message ~= "" then
-			messageLabel.Text = data.message
-			messageLabel.TextColor3 = if data.message == "ESCAPED" then COLOR_STAMINA else COLOR_REC
-			messageLabel.Visible = true
+			message.Text = data.message
+			message.TextColor3 = if data.message == "ESCAPED" then COLOR_GOOD else COLOR_DANGER
+			message.Visible = true
 		else
-			messageLabel.Visible = false
+			message.Visible = false
 		end
 	end
 
-	-- Drive the blinking REC dot. Call this every frame from the client script.
-	function self.tick(deltaTime: number)
-		blinkAccumulator += deltaTime
-		if blinkAccumulator >= 0.5 then
-			blinkAccumulator = 0
-			recVisible = not recVisible
-			recDot.TextTransparency = if recVisible then 0 else 1
+	-- Small idle animation (pulse the exit banner).
+	function self.tick(dt: number)
+		blink += dt
+		if exitBanner.Visible then
+			exitBanner.TextTransparency = 0.3 + 0.3 * (math.sin(blink * 6) * 0.5 + 0.5)
 		end
 	end
 

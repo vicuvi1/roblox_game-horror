@@ -3,145 +3,189 @@
 	GameConfig.lua
 	------------------------------------------------------------------
 	Central configuration for "90s Abandoned Shopping Mall" (Co-Op Horror).
-
-	This is a ModuleScript: it holds *data only* and returns a single frozen
-	table. Every other script (server, client, shared) requires this so that
-	tuning the game happens in ONE place instead of hunting through code.
-
-	How to expand later:
-	  - Add new fields to the `Config` table below.
-	  - If a field should be typed/validated, add it to the `GameConfig` type.
-	  - Because the table is frozen (table.freeze), runtime code cannot
-	    accidentally mutate your settings — change values HERE, not at runtime.
+	ModuleScript holding data only; returns one frozen table. Tune the whole
+	game from HERE (it's frozen, so runtime code can't change it by accident).
 ------------------------------------------------------------------ ]]
 
--- Strict type describing the shape of our config. This gives us autocomplete
--- and catches typos ("SprntSpeed") at author-time in strict mode.
 export type GameConfig = {
-	-- Round / match pacing (all times are in SECONDS)
-	MatchLength: number, -- How long a single round lasts once it begins
-	IntermissionLength: number, -- Lobby countdown between rounds
-	GameOverLength: number, -- How long the results screen lingers
+	-- Round / match pacing (seconds)
+	MatchLength: number,
+	IntermissionLength: number,
+	GameOverLength: number,
 
 	-- Player count gates
-	MinPlayers: number, -- Minimum players required to start a round
-	MaxPlayers: number, -- Server cap (also set this in the Roblox game settings)
+	MinPlayers: number,
+	MaxPlayers: number,
 
-	-- Movement tuning
-	WalkSpeed: number, -- Default humanoid WalkSpeed (studs/sec)
-	SprintSpeed: number, -- WalkSpeed while sprinting
+	-- Movement
+	WalkSpeed: number,
+	SprintSpeed: number,
 
-	-- Stamina tuning (used by the server-side sprint system)
-	MaxStamina: number, -- Full stamina pool
-	StaminaDrainRate: number, -- Stamina lost per second while sprinting
-	StaminaRegenRate: number, -- Stamina gained per second while NOT sprinting
-	StaminaRegenDelay: number, -- Seconds to wait after sprinting before regen starts
+	-- Stamina
+	MaxStamina: number,
+	StaminaDrainRate: number,
+	StaminaRegenRate: number,
+	StaminaRegenDelay: number,
 
-	-- Flashlight tuning (server-authoritative, visible to all co-op players)
-	MaxBattery: number, -- Full battery pool
-	BatteryDrainRate: number, -- Battery lost per second while flashlight is ON
-	BatteryRegenRate: number, -- Battery recovered per second while OFF (0 = never)
-	FlashlightRange: number, -- SpotLight Range in studs
-	FlashlightAngle: number, -- SpotLight cone Angle in degrees
-	FlashlightBrightness: number, -- SpotLight Brightness
-	FlashlightColor: Color3, -- Slightly warm/dim for retro feel
+	-- Flashlight / battery
+	MaxBattery: number,
+	BatteryDrainRate: number,
+	BatteryRegenRate: number,
+	FlashlightRange: number,
+	FlashlightAngle: number,
+	FlashlightBrightness: number,
+	FlashlightColor: Color3,
 
 	-- World / spawns
-	CreateDevArena: boolean, -- Build a test floor + lighting so you can play instantly
-	LobbySpawn: Vector3, -- Where players wait during Intermission / GameOver
-	ArenaCenter: Vector3, -- Center of the play space (mall)
-	ArenaSize: Vector3, -- Size of the dev arena floor
+	CreateDevArena: boolean,
+	LobbySpawn: Vector3,
+	ArenaCenter: Vector3,
+	ArenaSize: Vector3,
 
-	-- Objectives (collect them all to win the round)
-	NumObjectives: number, -- How many collectibles spawn per round
-	ObjectiveHoldDuration: number, -- Seconds to hold the "E" prompt to collect
+	-- Mall layout (designed level built from parts)
+	WallHeight: number,
+	WallThickness: number,
+	NumStoreBlocks: number, -- interior blocks that form aisles / cover
+	NumCeilingLights: number, -- flickering fluorescents
+	LightFlickerChance: number, -- 0..1 chance per tick a light flickers
 
-	-- Monster AI (the stalker)
-	MonsterDetectionRange: number, -- How far it can spot a player (studs)
-	MonsterCatchRange: number, -- How close before it catches (kills) you
-	MonsterPatrolSpeed: number, -- WalkSpeed while wandering
-	MonsterChaseSpeed: number, -- WalkSpeed while chasing a player
-	MonsterRepathInterval: number, -- Seconds between path recalculations
-	MonsterSearchTime: number, -- Seconds it hunts your last-known spot after losing you
+	-- Objectives
+	NumObjectives: number,
+	ObjectiveHoldDuration: number,
+
+	-- Exit
+	ExitReachRange: number, -- how close to the exit door counts as "escaped"
+
+	-- Monster AI
+	MonsterDetectionRange: number,
+	MonsterHearingRange: number, -- extra range for detecting SPRINTING players (no LoS needed)
+	MonsterCatchRange: number,
+	MonsterPatrolSpeed: number,
+	MonsterChaseSpeed: number,
+	MonsterRepathInterval: number,
+	MonsterSearchTime: number,
+	MonsterGrowlRange: number, -- within this range the growl sound plays
+
+	-- Atmosphere / lighting
+	FogEnd: number,
+	AtmosphereDensity: number,
+	AtmosphereHaze: number,
 
 	-- Client feel
-	SprintFov: number, -- Camera FOV while sprinting (default is 70)
-	DefaultFov: number, -- Camera FOV while walking
+	SprintFov: number,
+	DefaultFov: number,
 
 	-- HUD broadcast
-	HudUpdateRate: number, -- Seconds between server->client HUD updates
+	HudUpdateRate: number,
 
-	-- Networking (RemoteEvent wiring)
-	RemoteFolderName: string, -- Folder in ReplicatedStorage holding RemoteEvents
-	SprintRemoteName: string, -- Client -> server: request sprint on/off
-	FlashlightRemoteName: string, -- Client -> server: request flashlight on/off
-	HudRemoteName: string, -- Server -> client: push HUD state
+	-- Sound asset ids (leave "" to disable; fill with rbxassetid://NUMBER)
+	Sounds: {
+		Ambient: string,
+		Heartbeat: string,
+		Growl: string,
+		Jumpscare: string,
+		Collect: string,
+		DoorOpen: string,
+	},
+
+	-- Networking
+	RemoteFolderName: string,
+	SprintRemoteName: string,
+	FlashlightRemoteName: string,
+	HudRemoteName: string,
+	EventRemoteName: string, -- server -> client one-shot FX events (jumpscare, etc.)
 }
 
--- The actual values. Tune the whole game from right here.
 local Config: GameConfig = {
-	-- Round / match pacing
-	MatchLength = 300, -- 5 minute rounds
-	IntermissionLength = 15,
+	-- Round pacing
+	MatchLength = 300,
+	IntermissionLength = 12,
 	GameOverLength = 8,
 
-	-- Player count gates
-	MinPlayers = 1, -- 1 so you can solo-test in Studio; raise for real co-op
+	-- Players
+	MinPlayers = 1,
 	MaxPlayers = 4,
 
-	-- Movement tuning
+	-- Movement
 	WalkSpeed = 12,
 	SprintSpeed = 22,
 
-	-- Stamina tuning
+	-- Stamina
 	MaxStamina = 100,
-	StaminaDrainRate = 25, -- ~4 seconds of continuous sprint from full
-	StaminaRegenRate = 15, -- slower to regen than to drain (creates tension)
+	StaminaDrainRate = 25,
+	StaminaRegenRate = 15,
 	StaminaRegenDelay = 1.5,
 
-	-- Flashlight tuning
+	-- Flashlight
 	MaxBattery = 100,
-	BatteryDrainRate = 4, -- ~25 seconds of continuous light from full
-	BatteryRegenRate = 0, -- 0 = no free recharge (find batteries in the mall!)
+	BatteryDrainRate = 4,
+	BatteryRegenRate = 0,
 	FlashlightRange = 60,
 	FlashlightAngle = 50,
-	FlashlightBrightness = 2,
-	FlashlightColor = Color3.fromRGB(255, 244, 214), -- warm, slightly sickly
+	FlashlightBrightness = 2.5,
+	FlashlightColor = Color3.fromRGB(255, 244, 214),
 
-	-- World / spawns
-	CreateDevArena = true, -- set false once you have a real mall map
+	-- World
+	CreateDevArena = true,
 	LobbySpawn = Vector3.new(0, 5, 0),
 	ArenaCenter = Vector3.new(0, 5, 250),
 	ArenaSize = Vector3.new(220, 1, 220),
+
+	-- Mall layout
+	WallHeight = 22,
+	WallThickness = 2,
+	NumStoreBlocks = 10,
+	NumCeilingLights = 14,
+	LightFlickerChance = 0.06,
 
 	-- Objectives
 	NumObjectives = 5,
 	ObjectiveHoldDuration = 1.5,
 
+	-- Exit
+	ExitReachRange = 10,
+
 	-- Monster AI
 	MonsterDetectionRange = 70,
+	MonsterHearingRange = 45,
 	MonsterCatchRange = 6,
 	MonsterPatrolSpeed = 8,
-	MonsterChaseSpeed = 21, -- slightly slower than SprintSpeed(22): you CAN escape
+	MonsterChaseSpeed = 21,
 	MonsterRepathInterval = 0.4,
 	MonsterSearchTime = 6,
+	MonsterGrowlRange = 35,
+
+	-- Atmosphere
+	FogEnd = 85,
+	AtmosphereDensity = 0.42,
+	AtmosphereHaze = 2.4,
 
 	-- Client feel
 	SprintFov = 78,
 	DefaultFov = 70,
 
-	-- HUD broadcast (10x/sec is smooth enough and cheap on bandwidth)
+	-- HUD
 	HudUpdateRate = 0.1,
+
+	-- Sounds (fill these with free audio from Creator Store -> Audio; "" = silent)
+	Sounds = {
+		Ambient = "",
+		Heartbeat = "",
+		Growl = "",
+		Jumpscare = "",
+		Collect = "",
+		DoorOpen = "",
+	},
 
 	-- Networking
 	RemoteFolderName = "Remotes",
 	SprintRemoteName = "SprintRequest",
 	FlashlightRemoteName = "FlashlightRequest",
 	HudRemoteName = "HudUpdate",
+	EventRemoteName = "GameEvent",
 }
 
--- Freeze so no script can mutate config at runtime. Settings should only
--- ever change in this file, in source control.
 table.freeze(Config)
+table.freeze(Config.Sounds)
 
 return Config

@@ -1,19 +1,14 @@
 --!strict
 --[[
-	init.lua  (CLIENT — input, HUD, camera feel)
+	init.client.lua  (CLIENT — input, HUD, cinematic effects)
 	------------------------------------------------------------------
-	The client half of the game. It does NOT decide gameplay outcomes (that
-	would be exploitable) — it only:
-	  1. Sends input REQUESTS to the server (sprint via Shift, flashlight via F).
+	Ties the client together:
+	  1. Sends input REQUESTS to the server (Shift = sprint, F = flashlight).
 	  2. Renders the HUD from server-pushed state.
-	  3. Adds local "feel" that doesn't affect gameplay (sprint FOV kick).
+	  3. Drives the cinematic Effects (chase pulse, shake, jumpscare, grade).
+	  4. Local feel: sprint FOV kick.
 
-	Place this in StarterPlayer > StarterPlayerScripts (or let your loader put
-	it there). `Hud.lua` sits next to this file as a sibling ModuleScript.
-
-	How to expand later:
-	  - Add a crouch / interact key using the same FireServer request pattern.
-	  - Add screen-shake or a VHS post-processing effect while sprinting.
+	Sibling modules: Hud.lua, Effects.lua.
 ------------------------------------------------------------------ ]]
 
 local Players = game:GetService("Players")
@@ -23,78 +18,78 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
--- Hud.lua is a sibling module of this script (src/client/Hud.lua).
 local Hud = require(script:WaitForChild("Hud"))
+local Effects = require(script:WaitForChild("Effects"))
 
--- Wait for the server to have created the Remotes folder + RemoteEvents.
+-- Remotes (created by the server).
 local remotesFolder = ReplicatedStorage:WaitForChild(GameConfig.RemoteFolderName)
 local sprintRemote = remotesFolder:WaitForChild(GameConfig.SprintRemoteName) :: RemoteEvent
 local flashlightRemote = remotesFolder:WaitForChild(GameConfig.FlashlightRemoteName) :: RemoteEvent
 local hudRemote = remotesFolder:WaitForChild(GameConfig.HudRemoteName) :: RemoteEvent
+local eventRemote = remotesFolder:WaitForChild(GameConfig.EventRemoteName) :: RemoteEvent
 
 local localPlayer = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 
--- Build the HUD once.
 local hud = Hud.create()
+local fx = Effects.create()
 
--- Track flashlight state locally so F acts as a toggle.
 local flashlightOn = false
+local latest: Hud.HudData? = nil
 
 ------------------------------------------------------------------
--- INPUT — sprint (hold) + flashlight (toggle)
+-- INPUT
 ------------------------------------------------------------------
 
-local function onInputBegan(input: InputObject, gameProcessed: boolean)
+UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
 	if gameProcessed then
-		return -- ignore keys consumed by chat/menus
+		return
 	end
-
 	if input.KeyCode == Enum.KeyCode.LeftShift then
-		-- Hold-to-sprint: tell the server Shift is down.
 		sprintRemote:FireServer(true)
 	elseif input.KeyCode == Enum.KeyCode.F then
-		-- Toggle-to-flashlight: flip our local flag and tell the server.
 		flashlightOn = not flashlightOn
 		flashlightRemote:FireServer(flashlightOn)
 	end
-end
+end)
 
-local function onInputEnded(input: InputObject, _gameProcessed: boolean)
+UserInputService.InputEnded:Connect(function(input: InputObject)
 	if input.KeyCode == Enum.KeyCode.LeftShift then
 		sprintRemote:FireServer(false)
 	end
-end
-
-UserInputService.InputBegan:Connect(onInputBegan)
-UserInputService.InputEnded:Connect(onInputEnded)
+end)
 
 ------------------------------------------------------------------
--- HUD — render server-pushed state
+-- SERVER -> CLIENT
 ------------------------------------------------------------------
-
--- Keep the latest payload so the per-frame tick can react to it (FOV kick).
-local latest: Hud.HudData? = nil
 
 hudRemote.OnClientEvent:Connect(function(data: Hud.HudData)
 	latest = data
 	hud.update(data)
+	-- Chase intensity drives all the panic FX.
+	fx.setChaseLevel(if data.beingChased then 1 else 0)
+end)
+
+eventRemote.OnClientEvent:Connect(function(event: { type: string })
+	if event.type == "jumpscare" then
+		fx.jumpscare()
+	end
 end)
 
 ------------------------------------------------------------------
--- FEEL — sprint FOV kick + HUD blink (per frame)
+-- PER-FRAME (bound AFTER the camera so shake/FOV stick)
 ------------------------------------------------------------------
 
-RunService.RenderStepped:Connect(function(deltaTime: number)
-	hud.tick(deltaTime)
+RunService:BindToRenderStep("HorrorClient", Enum.RenderPriority.Camera.Value + 1, function(dt: number)
+	hud.tick(dt)
+	fx.tick(dt) -- applies camera shake to Workspace.CurrentCamera
 
-	-- Smoothly push the camera FOV out while the server says we're sprinting.
+	camera = Workspace.CurrentCamera
 	if camera then
 		local targetFov = if latest and latest.isSprinting
 			then GameConfig.SprintFov
 			else GameConfig.DefaultFov
-		-- Lerp toward the target so the change feels smooth, not snappy.
-		camera.FieldOfView += (targetFov - camera.FieldOfView) * math.min(1, deltaTime * 6)
+		camera.FieldOfView += (targetFov - camera.FieldOfView) * math.min(1, dt * 6)
 	end
 end)
 
@@ -102,13 +97,11 @@ end)
 -- RESPAWN SAFETY
 ------------------------------------------------------------------
 
--- If the player dies/respawns, cancel sprint + flashlight so the server isn't
--- draining resources against a fresh character.
 localPlayer.CharacterAdded:Connect(function()
 	flashlightOn = false
 	sprintRemote:FireServer(false)
 	flashlightRemote:FireServer(false)
-	camera = Workspace.CurrentCamera -- camera can be recreated on respawn
+	camera = Workspace.CurrentCamera
 end)
 
 print("[Client] Ready — Shift to sprint, F for flashlight")

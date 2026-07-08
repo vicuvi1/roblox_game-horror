@@ -35,9 +35,17 @@ local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 
 local MonsterAI = {}
 
+-- Dependencies the game loop injects (so this module stays decoupled).
+export type Deps = {
+	onCatch: (player: Player) -> (), -- called when a player is caught (for FX)
+	isSprinting: (player: Player) -> boolean, -- lets the monster "hear" sprinters
+}
+
 -- Module-level state.
 local model: Model? = nil
 local running = false
+local deps: Deps? = nil
+local chaseTarget: Player? = nil -- who the monster is actively chasing (for HUD/FX)
 
 ------------------------------------------------------------------
 -- BUILDING THE MONSTER
@@ -143,8 +151,15 @@ local function findTarget(fromPos: Vector3): (Player?, BasePart?, number)
 		local root = (getAliveTarget(player))
 		if root then
 			local dist = (root.Position - fromPos).Magnitude
-			if dist <= GameConfig.MonsterDetectionRange and dist < bestDist then
-				if hasLineOfSight(fromPos, root) then
+			if dist < bestDist then
+				-- SEEN: within sight range and not blocked by a wall.
+				local seen = dist <= GameConfig.MonsterDetectionRange
+					and hasLineOfSight(fromPos, root)
+				-- HEARD: a sprinting player is loud — detected even through walls.
+				local heard = deps ~= nil
+					and deps.isSprinting(player)
+					and dist <= GameConfig.MonsterHearingRange
+				if seen or heard then
 					bestPlayer = player
 					bestRoot = root
 					bestDist = dist
@@ -225,23 +240,29 @@ local function runAI()
 		local targetPlayer, targetRoot, dist = findTarget(myPos)
 
 		if targetPlayer and targetRoot then
-			-- CHASE: we can see someone.
+			-- CHASE: we can see (or hear) someone.
+			chaseTarget = targetPlayer -- HUD/FX read this to make YOU panic
 			humanoid.WalkSpeed = GameConfig.MonsterChaseSpeed
 			lastKnownPos = targetRoot.Position
 			searchTimer = GameConfig.MonsterSearchTime
 
-			-- Caught? Kill the player.
+			-- Caught? Kill the player and fire the jumpscare.
 			if dist <= GameConfig.MonsterCatchRange then
 				local _, targetHumanoid = getAliveTarget(targetPlayer)
 				if targetHumanoid then
 					targetHumanoid.Health = 0
 					print(string.format("[Monster] Caught %s!", targetPlayer.Name))
+					if deps then
+						deps.onCatch(targetPlayer)
+					end
 				end
+				chaseTarget = nil
 			else
 				stepToward(humanoid, root, targetRoot.Position)
 			end
 		elseif lastKnownPos and searchTimer > 0 then
 			-- SEARCH: head to where we last saw them for a while.
+			chaseTarget = nil
 			humanoid.WalkSpeed = GameConfig.MonsterChaseSpeed
 			searchTimer -= GameConfig.MonsterRepathInterval
 			stepToward(humanoid, root, lastKnownPos)
@@ -251,6 +272,7 @@ local function runAI()
 			end
 		else
 			-- PATROL: wander. Pick a new point once we reach the current one.
+			chaseTarget = nil
 			humanoid.WalkSpeed = GameConfig.MonsterPatrolSpeed
 			if (myPos - wanderGoal).Magnitude <= 8 then
 				wanderGoal = randomWanderPoint()
@@ -266,15 +288,36 @@ end
 -- PUBLIC API
 ------------------------------------------------------------------
 
+-- Attach a positional growl that gets louder the closer the monster is.
+local function addGrowl(root: BasePart)
+	if GameConfig.Sounds.Growl == "" then
+		return
+	end
+	local growl = Instance.new("Sound")
+	growl.Name = "Growl"
+	growl.SoundId = GameConfig.Sounds.Growl
+	growl.Looped = true
+	growl.Volume = 1
+	growl.RollOffMode = Enum.RollOffMode.Linear
+	growl.RollOffMaxDistance = GameConfig.MonsterGrowlRange
+	growl.RollOffMinDistance = 6
+	growl.Parent = root
+	growl:Play()
+end
+
 -- Spawn the monster far from the arena center and start hunting.
-function MonsterAI.start()
+-- `injected` gives the monster its catch callback + a way to hear sprinters.
+function MonsterAI.start(injected: Deps)
 	MonsterAI.stop() -- ensure only one exists
+	deps = injected
+	chaseTarget = nil
 
 	local center = GameConfig.ArenaCenter
 	local half = GameConfig.ArenaSize
 	local floorTopY = center.Y + (half.Y / 2)
-	-- Spawn near one edge so it has to walk in.
-	local spawnPos = Vector3.new(center.X, floorTopY + 5, center.Z - (half.Z / 2) + 12)
+	-- Spawn at the FAR (north) end, away from the players' south entrance, so
+	-- it has to hunt its way toward them.
+	local spawnPos = Vector3.new(center.X, floorTopY + 5, center.Z + (half.Z / 2) - 15)
 
 	local newMonster = buildMonster(spawnPos)
 	newMonster.Parent = Workspace
@@ -284,6 +327,7 @@ function MonsterAI.start()
 	local root = newMonster.PrimaryPart
 	if root then
 		root:SetNetworkOwner(nil)
+		addGrowl(root)
 	end
 
 	running = true
@@ -294,10 +338,16 @@ end
 -- Despawn the monster and halt the AI loop.
 function MonsterAI.stop()
 	running = false
+	chaseTarget = nil
 	if model then
 		model:Destroy()
 		model = nil
 	end
+end
+
+-- Who is the monster currently chasing? (nil if patrolling/searching.)
+function MonsterAI.getChaseTarget(): Player?
+	return chaseTarget
 end
 
 return MonsterAI

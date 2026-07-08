@@ -8,14 +8,25 @@ the Luau source pulled into Roblox Studio by an HttpService loader.
 ```
 src/
 ├── server/
-│   ├── init.lua          -- Game manager: state machine, rounds, win/lose, stamina + flashlight, HUD broadcast, dev arena
-│   ├── Objectives.lua    -- Collectibles (WIN condition) with hold-E prompts
-│   └── MonsterAI.lua     -- "The Stalker" (LOSE condition): pathfinding patrol/chase/search AI
+│   ├── init.server.lua   -- Game manager: state machine, rounds, win/lose, stamina + flashlight, HUD/FX broadcast
+│   ├── MallBuilder.lua    -- Builds the designed mall level (walls, storefronts, kiosks, flickering lights, exit door)
+│   ├── Objectives.lua     -- Collectibles with hold-E prompts (collect all -> exit unlocks)
+│   └── MonsterAI.lua      -- "The Stalker": pathfinding patrol/chase/search, hears sprinters, jumpscare on catch
 ├── client/
-│   ├── init.lua          -- Input (sprint/flashlight), HUD wiring, sprint FOV kick
-│   └── Hud.lua           -- VHS-styled HUD built in code (bars, timer, objectives, REC, result)
-└── shared/GameConfig.lua -- ModuleScript with all tunable settings
+│   ├── init.client.lua    -- Input (sprint/flashlight), HUD wiring, jumpscare events, post-camera shake/FOV
+│   ├── Hud.lua            -- Sleek HUD (meters, timer, objectives, exit banner, result stamp)
+│   └── Effects.lua        -- Cinematic FX: VHS grade, bloom, DOF, vignette, chase pulse, camera shake, jumpscare
+└── shared/GameConfig.lua  -- ModuleScript with all tunable settings
 ```
+
+### Cinematic / chase-survival features
+- **Post-processing** (client): VHS colour grade, bloom, depth-of-field, code-built vignette.
+- **Designed mall** (server): storefronts, island kiosks, flickering fluorescents, a locked exit door.
+- **Chase tension**: when the Stalker locks onto YOU, the screen pulses red, the camera shakes, and a heartbeat rises.
+- **Jumpscare** on catch (screen slam + shake; add a scare image/sound via `GameConfig.Sounds`).
+- **Exit door**: collect all objectives → it unlocks → reach it to **ESCAPE**.
+- **Smarter monster**: hears sprinting players through walls, growls when near, chases the nearest target.
+- **Sound-ready**: fill `GameConfig.Sounds` with free audio ids (Creator Store → Audio) for ambient/heartbeat/growl/jumpscare.
 
 ## The game loop
 
