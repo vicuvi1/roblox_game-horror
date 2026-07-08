@@ -1,0 +1,10 @@
+# Roblox / Rojo build artifacts
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
