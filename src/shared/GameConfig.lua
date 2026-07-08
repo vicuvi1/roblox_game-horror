@@ -37,9 +37,27 @@ export type GameConfig = {
 	StaminaRegenRate: number, -- Stamina gained per second while NOT sprinting
 	StaminaRegenDelay: number, -- Seconds to wait after sprinting before regen starts
 
-	-- Networking
-	RemoteFolderName: string, -- Name of the ReplicatedStorage folder holding RemoteEvents
-	SprintRemoteName: string, -- RemoteEvent used by the client to request sprint on/off
+	-- Flashlight tuning (server-authoritative, visible to all co-op players)
+	MaxBattery: number, -- Full battery pool
+	BatteryDrainRate: number, -- Battery lost per second while flashlight is ON
+	BatteryRegenRate: number, -- Battery recovered per second while OFF (0 = never)
+	FlashlightRange: number, -- SpotLight Range in studs
+	FlashlightAngle: number, -- SpotLight cone Angle in degrees
+	FlashlightBrightness: number, -- SpotLight Brightness
+	FlashlightColor: Color3, -- Slightly warm/dim for retro feel
+
+	-- Client feel
+	SprintFov: number, -- Camera FOV while sprinting (default is 70)
+	DefaultFov: number, -- Camera FOV while walking
+
+	-- HUD broadcast
+	HudUpdateRate: number, -- Seconds between server->client HUD updates
+
+	-- Networking (RemoteEvent wiring)
+	RemoteFolderName: string, -- Folder in ReplicatedStorage holding RemoteEvents
+	SprintRemoteName: string, -- Client -> server: request sprint on/off
+	FlashlightRemoteName: string, -- Client -> server: request flashlight on/off
+	HudRemoteName: string, -- Server -> client: push HUD state
 }
 
 -- The actual values. Tune the whole game from right here.
@@ -63,9 +81,27 @@ local Config: GameConfig = {
 	StaminaRegenRate = 15, -- slower to regen than to drain (creates tension)
 	StaminaRegenDelay = 1.5,
 
+	-- Flashlight tuning
+	MaxBattery = 100,
+	BatteryDrainRate = 4, -- ~25 seconds of continuous light from full
+	BatteryRegenRate = 0, -- 0 = no free recharge (find batteries in the mall!)
+	FlashlightRange = 60,
+	FlashlightAngle = 50,
+	FlashlightBrightness = 2,
+	FlashlightColor = Color3.fromRGB(255, 244, 214), -- warm, slightly sickly
+
+	-- Client feel
+	SprintFov = 78,
+	DefaultFov = 70,
+
+	-- HUD broadcast (10x/sec is smooth enough and cheap on bandwidth)
+	HudUpdateRate = 0.1,
+
 	-- Networking
 	RemoteFolderName = "Remotes",
 	SprintRemoteName = "SprintRequest",
+	FlashlightRemoteName = "FlashlightRequest",
+	HudRemoteName = "HudUpdate",
 }
 
 -- Freeze so no script can mutate config at runtime. Settings should only

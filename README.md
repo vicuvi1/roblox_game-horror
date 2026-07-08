@@ -7,10 +7,19 @@ the Luau source pulled into Roblox Studio by an HttpService loader.
 
 ```
 src/
-├── server/init.lua      -- Main game manager: state machine, rounds, stamina (authoritative)
-├── client/init.lua      -- Reads Shift input, requests sprint from the server
+├── server/init.lua       -- Main game manager: state machine, rounds, stamina + flashlight (authoritative), HUD broadcast
+├── client/
+│   ├── init.lua          -- Input (sprint/flashlight), HUD wiring, sprint FOV kick
+│   └── Hud.lua           -- VHS-styled HUD built in code (bars, timer, blinking REC)
 └── shared/GameConfig.lua -- ModuleScript with all tunable settings
 ```
+
+## Controls
+
+| Key      | Action                    |
+|----------|---------------------------|
+| `Shift`  | Hold to sprint (drains stamina) |
+| `F`      | Toggle flashlight (drains battery) |
 
 ## Where each script belongs in Roblox
 
@@ -19,6 +28,7 @@ src/
 | `src/shared/GameConfig.lua` | `ReplicatedStorage > Shared`          | ModuleScript   |
 | `src/server/init.lua`    | `ServerScriptService`                     | Script (server)|
 | `src/client/init.lua`    | `StarterPlayer > StarterPlayerScripts`    | LocalScript    |
+| `src/client/Hud.lua`     | child of the client LocalScript (sibling module) | ModuleScript |
 
 > The server and client scripts both `require` `ReplicatedStorage.Shared.GameConfig`.
 > Make sure your loader places `GameConfig` inside a folder named **`Shared`** in
@@ -37,6 +47,15 @@ src/
   drains stamina while sprinting, forces `WalkSpeed` back to normal at 0
   stamina, and regenerates after a short delay. This design prevents
   speed-hack exploits.
+- **Flashlight / battery** (server-authoritative): pressing `F` requests a
+  toggle over the `FlashlightRequest` RemoteEvent. The server creates a real
+  `SpotLight` on the player's head (so **all co-op players see each other's
+  lights**), drains battery while it's on, and forces it off at 0. Battery
+  does not recharge by default — add pickups via `addBattery(player, amount)`.
+- **HUD** (`client/Hud.lua`): the server pushes each player's stamina, battery,
+  game state, and round timer over the `HudUpdate` RemoteEvent (~10x/sec). The
+  client renders a VHS-style overlay: stamina/battery bars, an `MM:SS` timer,
+  and a blinking `● REC`. The stamina FOV kick is purely local feel.
 
 ## Tuning
 
