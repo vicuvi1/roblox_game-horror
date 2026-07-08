@@ -130,6 +130,50 @@ function UISystem.create()
 	})
 
 	-- Meters
+	-- Coins (top-right).
+	local coins = label(gui, {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -20, 0, 16),
+		Size = UDim2.new(0, 180, 0, 24),
+		Font = FONT_BOLD,
+		TextSize = 18,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = Color3.fromRGB(255, 215, 120),
+		Text = "",
+	})
+
+	-- Generator objective tracker (under the zone label).
+	local objectives = label(gui, {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 98),
+		Size = UDim2.new(0, 360, 0, 20),
+		Font = FONT_BOLD,
+		TextSize = 16,
+		TextColor3 = C_STAMINA,
+		Text = "",
+		Visible = false,
+	})
+
+	-- Downed overlay: the tense "hold on" moment.
+	local downed = Instance.new("Frame")
+	downed.BackgroundColor3 = Color3.fromRGB(60, 0, 0)
+	downed.BackgroundTransparency = 0.55
+	downed.BorderSizePixel = 0
+	downed.Size = UDim2.new(1, 0, 1, 0)
+	downed.Visible = false
+	downed.ZIndex = 6
+	downed.Parent = gui
+	local downedText = label(downed, {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(0, 700, 0, 120),
+		Font = FONT_BOLD,
+		TextSize = 40,
+		TextColor3 = Color3.fromRGB(255, 90, 90),
+		ZIndex = 7,
+		Text = "",
+	})
+
 	local staminaFill, staminaText = meter(gui, "STAMINA", C_STAMINA, -78)
 	local breathFill, breathText = meter(gui, "BREATH", C_BREATH, -52)
 	local batteryFill, batteryText = meter(gui, "BATTERY", C_BATTERY, -26)
@@ -163,7 +207,7 @@ function UISystem.create()
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
 		RichText = true,
-		Text = "<b>HOW TO SURVIVE</b>\nShift — run (loud)\nC — crouch (quiet)\nG — hold breath\nQ / E — peek\nF — flashlight (it sees it)\nE — hide / doors / pick up\nR — open doors SLOWLY\nT — throw bottle (decoy)",
+		Text = "<b>SURVIVE THE NIGHT</b>\nRepair 3 generators → power extraction → escape.\n\nShift run · C crouch · G breath\nQ/E peek · F light · T decoy\nE hide/doors/repair · R open slow\nH medkit (self-revive)\n\n<font color='#ff6b6b'>The Stalker HUNTS you.\nThe Lurker only moves when unwatched.</font>\nBuy upgrades here with coins.",
 	})
 
 	-- Results screen (hidden until the round ends)
@@ -218,6 +262,27 @@ function UISystem.create()
 		batteryFill.BackgroundColor3 = if bt < 0.2 then C_DANGER else C_BATTERY
 		batteryText.Text = string.format("BATTERY %d%%", math.floor(bt * 100 + 0.5))
 
+		-- Coins always visible (they're your progression).
+		coins.Text = string.format("COINS  %d", data.coins or 0)
+
+		-- Generator tracker.
+		if data.state == "InGame" and (data.objectivesTotal or 0) > 0 then
+			local d, tot = data.objectivesDone or 0, data.objectivesTotal
+			objectives.Text = string.format("GENERATORS  %d / %d", d, tot)
+			objectives.TextColor3 = if d >= tot then C_GOOD else C_STAMINA
+			objectives.Visible = true
+		else
+			objectives.Visible = false
+		end
+
+		-- Downed overlay.
+		if data.status == "downed" then
+			downed.Visible = true
+			downedText.Text = "YOU ARE DOWNED\nHold on — a teammate can revive you\n(MEDKIT owners: press H)"
+		else
+			downed.Visible = false
+		end
+
 		-- Status chips: communicate state at a glance.
 		local chips = {}
 		if data.hidden then
@@ -235,7 +300,7 @@ function UISystem.create()
 		status.Text = table.concat(chips, "   ")
 
 		banner.Visible = data.state == "InGame" and data.extractionOpen and not data.escaped
-		banner.Text = "EXTRACTION OPEN — GET OUT"
+		banner.Text = "EXTRACTION POWERED — GET OUT"
 
 		tutorial.Visible = data.zone == "Spawn"
 
@@ -253,12 +318,14 @@ function UISystem.create()
 		resultsTitle.Text = data.result
 		resultsTitle.TextColor3 = if data.result == "ESCAPED" or data.result == "SURVIVED" then C_GOOD else C_DANGER
 		resultsBody.Text = string.format(
-			"Survived: <b>%02d:%02d</b>\nDistance traveled: <b>%dm</b>\nClose calls: <b>%d</b>\nHiding spots used: <b>%d</b>\n%s",
+			"Survived: <b>%02d:%02d</b>\nDistance: <b>%dm</b>   Close calls: <b>%d</b>\nHiding spots used: <b>%d</b>\n<font color='#ffd678'>+%d coins  (total %d)</font>\n%s",
 			math.floor(data.survival / 60),
 			data.survival % 60,
 			data.distance,
 			data.closeCalls,
 			data.hides,
+			data.coinsEarned or 0,
+			data.coinsTotal or 0,
 			if data.escaped then "You got out. This time." else "The facility keeps you."
 		)
 		results.Visible = true

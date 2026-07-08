@@ -65,6 +65,8 @@ local function makeSound(id: string, group: SoundGroup, looped: boolean, volume:
 	return s
 end
 
+local musicGroup = makeGroup("Music", masterGroup)
+
 local ambientA = makeSound(GameConfig.Sounds.AmbientDefault, ambientGroup, true, 0) -- crossfade pair
 local ambientB = makeSound(GameConfig.Sounds.AmbientDefault, ambientGroup, true, 0)
 local heartbeat = makeSound(GameConfig.Sounds.Heartbeat, heartGroup, true, 0)
@@ -72,15 +74,15 @@ local footstep = makeSound(GameConfig.Sounds.Footstep, sfxGroup, false, 0.5)
 local detection = makeSound(GameConfig.Sounds.DetectionStinger, enemyGroup, false, 1)
 local jumpscare = makeSound(GameConfig.Sounds.Jumpscare, enemyGroup, false, 1)
 local stinger = makeSound(GameConfig.Sounds.Stinger, ambientGroup, false, 0.35)
+local whisper = makeSound(GameConfig.Sounds.Whisper, ambientGroup, false, 0.5)
+-- Two music layers: a low dread bed and a chase layer, faded in by tension.
+local musicLow = makeSound(GameConfig.Sounds.MusicLow, musicGroup, true, 0)
+local musicHigh = makeSound(GameConfig.Sounds.MusicHigh, musicGroup, true, 0)
 
-if ambientA then
-	ambientA:Play()
-end
-if ambientB then
-	ambientB:Play()
-end
-if heartbeat then
-	heartbeat:Play()
+for _, s in { ambientA, ambientB, heartbeat, musicLow, musicHigh } do
+	if s then
+		s:Play()
+	end
 end
 
 ----------------------------------------------------------------
@@ -147,10 +149,25 @@ end
 ----------------------------------------------------------------
 
 function SoundManager.setTension(tension: number)
+	local t = math.clamp(tension / 100, 0, 1)
 	if heartbeat then
-		local t = math.clamp(tension / 100, 0, 1)
 		heartbeat.Volume = t * 0.9
 		heartbeat.PlaybackSpeed = 0.85 + t * 0.6 -- rest -> racing
+	end
+	-- Music layering: dread bed fades in past ~40, chase layer past ~70.
+	if musicLow then
+		musicLow.Volume = math.clamp((t - 0.4) / 0.4, 0, 1) * 0.5
+	end
+	if musicHigh then
+		musicHigh.Volume = math.clamp((t - 0.7) / 0.3, 0, 1) * 0.7
+	end
+end
+
+-- Creepy proximity whisper when an entity is very close (throttled).
+function SoundManager.whisper()
+	if whisper and gate("whisper", 6) then
+		whisper.PlaybackSpeed = jitter(1, 0.1)
+		whisper:Play()
 	end
 end
 

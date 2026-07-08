@@ -27,12 +27,14 @@ local UISystem = require(script:WaitForChild("UISystem"))
 local SoundManager = require(script:WaitForChild("SoundManager"))
 local AnimationController = require(script:WaitForChild("AnimationController"))
 local Effects = require(script:WaitForChild("Effects"))
+local MobileControls = require(script:WaitForChild("MobileControls"))
 
 local remotes = ReplicatedStorage:WaitForChild(GameConfig.RemoteFolderName)
 local actionRemote = remotes:WaitForChild(GameConfig.ActionRemoteName) :: RemoteEvent
 local throwRemote = remotes:WaitForChild(GameConfig.ThrowRemoteName) :: RemoteEvent
 local hudRemote = remotes:WaitForChild(GameConfig.HudRemoteName) :: RemoteEvent
 local eventRemote = remotes:WaitForChild(GameConfig.EventRemoteName) :: RemoteEvent
+local lookRemote = remotes:WaitForChild(GameConfig.LookRemoteName) :: RemoteEvent
 
 local localPlayer = Players.LocalPlayer
 localPlayer.CameraMode = Enum.CameraMode.LockFirstPerson
@@ -84,6 +86,8 @@ UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: 
 		if camera then
 			throwRemote:FireServer(camera.CFrame.LookVector)
 		end
+	elseif key == Enum.KeyCode.H then
+		actionRemote:FireServer("selfrevive", true) -- medkit self-revive
 	elseif key == Enum.KeyCode.Q then
 		peek = -1
 	elseif key == Enum.KeyCode.E and UserInputService:IsKeyDown(Enum.KeyCode.Q) == false then
@@ -115,9 +119,14 @@ hudRemote.OnClientEvent:Connect(function(data: any)
 	ui.update(data)
 	fx.setTension(data.tension or 0)
 	fx.setHunted(data.beingHunted == true)
+	fx.setDowned(data.status == "downed")
+	fx.setSense(data.sixthSense == true and data.entityClose == true)
 	SoundManager.setTension(data.tension or 0)
 	if data.zone and data.zone ~= "?" then
 		SoundManager.setZone(data.zone)
+	end
+	if data.entityVeryClose then
+		SoundManager.whisper() -- throttled internally
 	end
 end)
 
@@ -169,6 +178,55 @@ RunService:BindToRenderStep("SurviveClient", Enum.RenderPriority.Camera.Value + 
 		end
 	end
 end)
+
+------------------------------------------------------------------
+-- LOOK STREAM (feeds the Lurker's "am I being watched?" check)
+------------------------------------------------------------------
+
+task.spawn(function()
+	while true do
+		local camera = Workspace.CurrentCamera
+		if camera then
+			lookRemote:FireServer(camera.CFrame.LookVector)
+		end
+		task.wait(0.2)
+	end
+end)
+
+------------------------------------------------------------------
+-- MOBILE CONTROLS (touch devices only; same actions as the keyboard)
+------------------------------------------------------------------
+
+MobileControls.create({
+	setSprint = function(on)
+		actionRemote:FireServer("sprint", on)
+	end,
+	toggleCrouch = function()
+		crouching = not crouching
+		actionRemote:FireServer("crouch", crouching)
+		AnimationController.setState(if crouching then "CrouchWalk" else "")
+	end,
+	setBreath = function(on)
+		actionRemote:FireServer("breath", on)
+		AnimationController.setState(if on then "HoldBreath" elseif crouching then "CrouchWalk" else "")
+	end,
+	toggleFlashlight = function()
+		flashlightOn = not flashlightOn
+		actionRemote:FireServer("flashlight", flashlightOn)
+	end,
+	setPeek = function(v)
+		peek = v
+	end,
+	throw = function()
+		local camera = Workspace.CurrentCamera
+		if camera then
+			throwRemote:FireServer(camera.CFrame.LookVector)
+		end
+	end,
+	selfRevive = function()
+		actionRemote:FireServer("selfrevive", true)
+	end,
+})
 
 ------------------------------------------------------------------
 -- RESPAWN SAFETY

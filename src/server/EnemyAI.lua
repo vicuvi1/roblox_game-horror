@@ -39,6 +39,8 @@ local HidingSpotSystem = require(script.Parent:WaitForChild("HidingSpotSystem"))
 local MapManager = require(script.Parent:WaitForChild("MapManager"))
 local PlayerService = require(script.Parent:WaitForChild("PlayerService"))
 local Gore = require(script.Parent:WaitForChild("Gore"))
+local DownSystem = require(script.Parent:WaitForChild("DownSystem"))
+local ModelLoader = require(script.Parent:WaitForChild("ModelLoader"))
 
 local EnemyAI = {}
 
@@ -73,6 +75,14 @@ local EYE_COLORS: { [string]: Color3 } = {
 }
 
 local function buildBody(position: Vector3): Model
+	eyes = {}
+	-- Prefer an imported rig if one is configured; fall back to parts.
+	local imported = ModelLoader.loadRig(GameConfig.PropModels.Stalker, position)
+	if imported then
+		imported.Name = "Stalker"
+		return imported
+	end
+
 	local monster = Instance.new("Model")
 	monster.Name = "Stalker"
 	local BODY = Color3.fromRGB(14, 10, 12)
@@ -231,6 +241,10 @@ end
 ------------------------------------------------------------------
 
 local function aliveRoot(player: Player): BasePart?
+	-- Downed/dead players aren't valid prey (a teammate might still save them).
+	if DownSystem.status(player) ~= "up" then
+		return nil
+	end
 	local character = player.Character
 	if not character then
 		return nil
@@ -398,17 +412,21 @@ end
 ------------------------------------------------------------------
 
 local function kill(player: Player)
-	local character = player.Character
-	local hum = character and character:FindFirstChildOfClass("Humanoid")
-	if hum and hum.Health > 0 then
-		HidingSpotSystem.forceOut(player)
-		local hrp = character:FindFirstChild("HumanoidRootPart")
-		if hrp and hrp:IsA("BasePart") then
-			Gore.kill(hrp.Position) -- blood spray + splatter decals
-		end
-		hum.Health = 0
-		Signals.Caught:Fire(player)
+	-- Only grab players who are still standing (not already downed/dead).
+	if DownSystem.status(player) ~= "up" then
+		return
 	end
+	local character = player.Character
+	if not character then
+		return
+	end
+	HidingSpotSystem.forceOut(player)
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if hrp and hrp:IsA("BasePart") then
+		Gore.kill(hrp.Position) -- blood spray + splatter decals
+	end
+	Signals.Caught:Fire(player) -- FX (jumpscare) for the victim
+	DownSystem.down(player) -- co-op: downed, not dead — a teammate can save them
 end
 
 local function runBrain()

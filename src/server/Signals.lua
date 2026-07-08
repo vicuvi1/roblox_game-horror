@@ -25,6 +25,10 @@ Signals.Noise = make("Noise")
 Signals.Detection = make("Detection")
 Signals.NearMiss = make("NearMiss")
 Signals.HideUsed = make("HideUsed")
-Signals.Caught = make("Caught")
+Signals.Caught = make("Caught") -- an entity reached a player (-> downed)
+Signals.Downed = make("Downed") -- player entered the downed state
+Signals.Revived = make("Revived") -- (revivedPlayer, reviverPlayer)
+Signals.Death = make("Death") -- player actually died (bleedout / all-down)
+Signals.ObjectiveDone = make("ObjectiveDone") -- (player) repaired a generator
 
 return Signals

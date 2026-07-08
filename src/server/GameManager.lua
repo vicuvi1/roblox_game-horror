@@ -29,6 +29,11 @@ local HidingSpotSystem = require(script.Parent:WaitForChild("HidingSpotSystem"))
 local ThrowableSystem = require(script.Parent:WaitForChild("ThrowableSystem"))
 local PlayerService = require(script.Parent:WaitForChild("PlayerService"))
 local EnemyAI = require(script.Parent:WaitForChild("EnemyAI"))
+local DownSystem = require(script.Parent:WaitForChild("DownSystem"))
+local ObjectiveSystem = require(script.Parent:WaitForChild("ObjectiveSystem"))
+local Lurker = require(script.Parent:WaitForChild("Lurker"))
+local Progression = require(script.Parent:WaitForChild("Progression"))
+local ShopSystem = require(script.Parent:WaitForChild("ShopSystem"))
 
 local GameManager = {}
 
@@ -72,10 +77,15 @@ local function setupRemotes()
 	hudRemote = ensure(GameConfig.HudRemoteName)
 	eventRemote = ensure(GameConfig.EventRemoteName)
 
-	-- Client action requests (sprint / crouch / breath / flashlight).
+	-- Client action requests (sprint / crouch / breath / flashlight / selfrevive).
 	local actionRemote = ensure(GameConfig.ActionRemoteName)
 	actionRemote.OnServerEvent:Connect(function(player: Player, action: any, on: any)
-		if typeof(action) == "string" then
+		if typeof(action) ~= "string" then
+			return
+		end
+		if action == "selfrevive" then
+			DownSystem.trySelfRevive(player)
+		else
 			PlayerService.handleAction(player, action, on == true)
 		end
 	end)
@@ -87,6 +97,23 @@ local function setupRemotes()
 			ThrowableSystem.throw(player, direction)
 		end
 	end)
+
+	-- Shop purchases.
+	local buyRemote = ensure(GameConfig.BuyRemoteName)
+	buyRemote.OnServerEvent:Connect(function(player: Player, itemId: any)
+		if typeof(itemId) == "string" then
+			local result = ShopSystem.buy(player, itemId)
+			eventRemote:FireClient(player, { type = "buy", item = itemId, result = result })
+		end
+	end)
+
+	-- Camera look stream (feeds the Lurker's "am I being watched?" check).
+	local lookRemote = ensure(GameConfig.LookRemoteName)
+	lookRemote.OnServerEvent:Connect(function(player: Player, dir: any)
+		if typeof(dir) == "Vector3" then
+			Lurker.setLook(player, dir)
+		end
+	end)
 end
 
 ------------------------------------------------------------------
@@ -95,16 +122,30 @@ end
 
 local function relaySignals()
 	Signals.Detection.Event:Connect(function(player: Player)
-		-- The unmistakable "it sees you" stinger, only for the spotted player.
 		eventRemote:FireClient(player, { type = "detected" })
 	end)
 	Signals.NearMiss.Event:Connect(function(player: Player)
 		eventRemote:FireClient(player, { type = "nearMiss" })
 	end)
 	Signals.Caught.Event:Connect(function(player: Player)
-		-- Send the killer's position so the client can whip the camera to it.
+		-- Grabbed: whip the camera to the attacker + blood slam.
 		local enemyPos = EnemyAI.info()
 		eventRemote:FireClient(player, { type = "jumpscare", enemyPos = enemyPos })
+	end)
+	Signals.Downed.Event:Connect(function(player: Player)
+		eventRemote:FireClient(player, { type = "downed" })
+	end)
+	Signals.Revived.Event:Connect(function(player: Player, by: Player?)
+		eventRemote:FireClient(player, { type = "revived" })
+		if by then
+			Progression.award(by, GameConfig.CoinsRevive) -- saving a teammate pays
+		end
+	end)
+	Signals.Death.Event:Connect(function(player: Player)
+		eventRemote:FireClient(player, { type = "dead" })
+	end)
+	Signals.ObjectiveDone.Event:Connect(function(player: Player)
+		Progression.award(player, GameConfig.CoinsObjective)
 	end)
 end
 
@@ -115,9 +156,23 @@ end
 local function broadcastHud()
 	local refs = mapRefs
 	local enemyPos, enemyState, enemyTarget = EnemyAI.info()
+	local lurkerPos = Lurker.info()
 	for player, s in PlayerService.all() do
 		local character = player.Character
-		local zone = if character and refs then MapManager.zoneAt(refs :: any, character:GetPivot().Position) else nil
+		local myPos = if character then character:GetPivot().Position else nil
+		local zone = if myPos and refs then MapManager.zoneAt(refs :: any, myPos) else nil
+
+		-- Distance to the NEAREST of the two entities (drives scare FX).
+		local nearestEntity = math.huge
+		if myPos then
+			if enemyPos then
+				nearestEntity = math.min(nearestEntity, (enemyPos - myPos).Magnitude)
+			end
+			if lurkerPos then
+				nearestEntity = math.min(nearestEntity, (lurkerPos - myPos).Magnitude)
+			end
+		end
+
 		hudRemote:FireClient(player, {
 			state = currentState,
 			timeLeft = math.ceil(phaseTimeLeft),
@@ -137,10 +192,14 @@ local function broadcastHud()
 			message = roundMessage,
 			extractionOpen = extractionOpen,
 			escaped = s.escaped,
+			status = DownSystem.status(player), -- up / downed / dead
+			objectivesDone = ObjectiveSystem.getDone(),
+			objectivesTotal = ObjectiveSystem.getTotal(),
+			coins = Progression.getCoins(player),
+			sixthSense = s.itemSixth,
 			beingHunted = enemyState == "Hunt" and enemyTarget == player,
-			enemyClose = enemyPos ~= nil
-				and character ~= nil
-				and (enemyPos - character:GetPivot().Position).Magnitude < 25,
+			entityClose = nearestEntity < 26,
+			entityVeryClose = nearestEntity < GameConfig.WhisperRange,
 		})
 	end
 end
@@ -209,63 +268,64 @@ local function runRound(): string
 	extractionOpen = false
 
 	PlayerService.resetForRound()
+	DownSystem.resetForRound()
 	DoorSystem.resetAll(refs)
 	HidingSpotSystem.reset()
 	ThrowableSystem.reset(refs)
+	ObjectiveSystem.reset()
 	spawnAll()
 	EnemyAI.start(refs)
+
+	-- The Lurker wakes partway in, once players are already on edge.
+	task.delay(GameConfig.LurkerAppearAfter, function()
+		if currentState == "InGame" then
+			Lurker.start(refs)
+		end
+	end)
 
 	local result = "CAUGHT"
 	for t = GameConfig.MatchLength, 1, -1 do
 		phaseTimeLeft = t
 
-		-- Late-round extraction unlock, announced once.
-		if not extractionOpen and t <= GameConfig.ExtractionOpensAt then
+		-- Extraction arms once every generator is online.
+		if not extractionOpen and ObjectiveSystem.isComplete() then
 			extractionOpen = true
 			DoorSystem.unlockExtraction()
 			eventRemote:FireAllClients({ type = "extractionOpen" })
 		end
 
-		-- Escapes + end-of-round bookkeeping.
-		local anyAlive = false
-		local anyUnescaped = false
+		-- Escapes + end-of-round census.
+		local outOrEscaped = 0
+		local totalPlayers = 0
+		local escapedAny = false
 		for player, s in PlayerService.all() do
-			local character = player.Character
-			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-			local alive = humanoid ~= nil and humanoid.Health > 0
-			if alive and s.alive then
-				anyAlive = true
-				if extractionOpen and not s.escaped and inExtraction(player) then
-					s.escaped = true
-					eventRemote:FireClient(player, { type = "escaped" })
-				end
-				if not s.escaped then
-					anyUnescaped = true
-				end
-			elseif s.alive and not alive then
-				s.alive = false -- died this tick; survival timer already stopped
+			totalPlayers += 1
+			if DownSystem.status(player) == "up" and not s.escaped and extractionOpen and inExtraction(player) then
+				s.escaped = true
+				eventRemote:FireClient(player, { type = "escaped" })
+			end
+			if s.escaped then
+				escapedAny = true
+			end
+			if s.escaped or DownSystem.isOut(player) then
+				outOrEscaped += 1
 			end
 		end
 
-		if not anyAlive then
-			result = "CAUGHT"
-			break
-		end
-		if extractionOpen and not anyUnescaped then
-			result = "ESCAPED"
+		-- Round ends when nobody is left in play (all dead and/or escaped).
+		if totalPlayers > 0 and outOrEscaped >= totalPlayers then
+			result = if escapedAny then "ESCAPED" else "CAUGHT"
 			break
 		end
 
 		task.wait(1)
 	end
 
-	-- Timer expiry: whoever is still breathing outlasted the night.
+	-- Timer expiry: anyone not dead outlasted the night.
 	if phaseTimeLeft <= 1 then
 		local survivors = 0
 		for player, s in PlayerService.all() do
-			local character = player.Character
-			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-			if humanoid and humanoid.Health > 0 then
+			if not DownSystem.isOut(player) then
 				survivors += 1
 			end
 		end
@@ -273,6 +333,7 @@ local function runRound(): string
 	end
 
 	EnemyAI.stop()
+	Lurker.stop()
 	return result
 end
 
@@ -280,8 +341,17 @@ local function runGameOver(result: string)
 	currentState = "GameOver"
 	roundMessage = result
 
-	-- Ship each player their personal results-screen stats.
+	-- Award coins, then ship each player their personal results screen.
 	for player, s in PlayerService.all() do
+		local earned = math.floor(s.statSurvival * GameConfig.CoinsPerSecond)
+		if s.escaped then
+			earned += GameConfig.CoinsEscape
+		end
+		if result == "ESCAPED" or result == "SURVIVED" then
+			earned += GameConfig.CoinsSurviveBonus
+		end
+		Progression.award(player, earned)
+
 		eventRemote:FireClient(player, {
 			type = "results",
 			result = result,
@@ -290,6 +360,8 @@ local function runGameOver(result: string)
 			closeCalls = s.statCloseCalls,
 			hides = s.statHides,
 			escaped = s.escaped,
+			coinsEarned = earned,
+			coinsTotal = Progression.getCoins(player),
 		})
 	end
 
@@ -327,6 +399,7 @@ function GameManager.start(refs: MapManager.MapRefs)
 	-- Simulation heartbeat.
 	RunService.Heartbeat:Connect(function(dt)
 		PlayerService.step(dt, currentState == "InGame")
+		DownSystem.step(dt)
 	end)
 
 	-- HUD pump.

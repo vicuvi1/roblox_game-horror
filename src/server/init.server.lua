@@ -28,6 +28,11 @@ local PlayerService = require(script:WaitForChild("PlayerService"))
 local EnemyAI = require(script:WaitForChild("EnemyAI"))
 local AtmosphereSystem = require(script:WaitForChild("AtmosphereSystem"))
 local GameManager = require(script:WaitForChild("GameManager"))
+local DownSystem = require(script:WaitForChild("DownSystem"))
+local ObjectiveSystem = require(script:WaitForChild("ObjectiveSystem"))
+local Progression = require(script:WaitForChild("Progression"))
+local ShopSystem = require(script:WaitForChild("ShopSystem"))
+local Lurker = require(script:WaitForChild("Lurker"))
 
 -- We own spawning entirely (players only get bodies via GameManager).
 Players.CharacterAutoLoads = false
@@ -36,17 +41,24 @@ Players.CharacterAutoLoads = false
 local refs = MapManager.build()
 
 -- 2) Systems over the world.
+Progression.init() -- persistent coins/items (must load before rounds start)
+DownSystem.init()
 DoorSystem.init(refs)
 HidingSpotSystem.init(refs)
 ThrowableSystem.init(refs)
+ObjectiveSystem.init(refs)
+ShopSystem.init()
 PlayerService.init(refs)
 AtmosphereSystem.init(refs)
 
 -- 3) Cross-module probes (dependency inversion, no require cycles).
 PlayerService.setEnemyInfo(EnemyAI.info)
+DownSystem.setMedkitCheck(function(player)
+	return ShopSystem.owns(player, "medkit")
+end)
 AtmosphereSystem.setEnemyProbe(function()
-	local pos = EnemyAI.info()
-	return pos
+	-- Lights react to WHICHEVER entity is present (Stalker or Lurker).
+	return EnemyAI.info() or Lurker.info()
 end)
 
 -- 4) Give newcomers a body in the safe spawn room while they wait.

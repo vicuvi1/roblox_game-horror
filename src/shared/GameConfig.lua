@@ -148,6 +148,49 @@ local Config = {
 	StingerMaxInterval = 50,
 
 	----------------------------------------------------------------
+	-- CO-OP: DOWN & REVIVE
+	----------------------------------------------------------------
+	DownBleedoutTime = 35, -- seconds a downed player has before they die
+	DownCrawlSpeed = 3, -- barely drag yourself along the floor
+	ReviveHoldTime = 4, -- seconds a teammate must hold to revive
+	ReviveHealth = 60, -- health you come back with
+	SelfReviveHealth = 50, -- when using a purchased medkit on yourself
+
+	----------------------------------------------------------------
+	-- OBJECTIVES (power the extraction)
+	----------------------------------------------------------------
+	GeneratorCount = 3, -- repair them all to arm extraction
+	GeneratorRepairTime = 7, -- hold-E seconds per generator
+	GeneratorNoise = 30, -- repairing hums — the enemy can hear it
+
+	----------------------------------------------------------------
+	-- SECOND ENTITY: THE LURKER (moves only when unobserved)
+	----------------------------------------------------------------
+	LurkerEnabled = true,
+	LurkerAppearAfter = 60, -- seconds into the round before it wakes
+	LurkerSpeed = 17, -- fast, BUT only while nobody looks at it
+	LurkerCatchRange = 4.5,
+	LurkerLookDot = 0.55, -- how centered in your view it must be to "freeze" it
+	LurkerSightRange = 90, -- you can freeze it from this far if you see it
+	LurkerRetreatTime = 12, -- vanishes + relocates after this long observed
+
+	----------------------------------------------------------------
+	-- PROGRESSION (coins persist via DataStore)
+	----------------------------------------------------------------
+	CoinsPerSecond = 1, -- survival income
+	CoinsEscape = 120,
+	CoinsRevive = 30,
+	CoinsObjective = 25,
+	CoinsSurviveBonus = 60,
+
+	----------------------------------------------------------------
+	-- SCARE LAYER
+	----------------------------------------------------------------
+	WhisperRange = 40, -- creepy whispers when an entity is this close
+	EntityLightKillRange = 22, -- the enemy snuffs nearby lights while hunting
+	JumpscareDarkness = 0.9,
+
+	----------------------------------------------------------------
 	-- GORE / IMPACT
 	----------------------------------------------------------------
 	BloodBurstCount = 60, -- particles per catch
@@ -181,6 +224,23 @@ local Config = {
 		Stinger = "rbxasset://sounds/electronicpingshort.wav",
 		Vault = "rbxasset://sounds/action_jump.mp3",
 		Barricade = "rbxasset://sounds/impact_wood.mp3",
+		MusicLow = "", -- low dread bed (fades in ~tension 40)
+		MusicHigh = "", -- chase layer (fades in ~tension 70)
+		Whisper = "", -- creepy proximity whisper
+		Generator = "rbxasset://sounds/electronicpingshort.wav",
+	},
+
+	----------------------------------------------------------------
+	-- IMPORTED MODELS (paste Toolbox/Marketplace asset ids to swap the
+	-- code-built props for real meshes; "" = keep the part version).
+	-- ModelLoader tries InsertService:LoadAsset(id) with pcall + fallback.
+	----------------------------------------------------------------
+	PropModels = {
+		Stalker = "", -- a scary humanoid rig (must contain a Humanoid + HumanoidRootPart)
+		Lurker = "",
+		Locker = "",
+		Bed = "",
+		Generator = "",
 	},
 
 	----------------------------------------------------------------
@@ -210,6 +270,19 @@ local Config = {
 	ThrowRemoteName = "ThrowRequest", -- client -> server (direction)
 	HudRemoteName = "HudUpdate", -- server -> client (10x/sec state)
 	EventRemoteName = "GameEvent", -- server -> client one-shots (stingers, results)
+	BuyRemoteName = "BuyRequest", -- client -> server (shop item id)
+	LookRemoteName = "LookUpdate", -- client -> server (camera look dir, for Lurker)
+}
+
+----------------------------------------------------------------
+-- SHOP ITEMS (bought in the lobby with coins; effects applied per round)
+----------------------------------------------------------------
+Config.ShopItems = {
+	{ id = "medkit", name = "Medkit", price = 150, desc = "Self-revive once when downed (press H)." },
+	{ id = "brightlight", name = "Halogen Light", price = 120, desc = "Brighter, longer-lasting flashlight." },
+	{ id = "lungs", name = "Diver's Lungs", price = 100, desc = "Hold your breath twice as long." },
+	{ id = "runner", name = "Runner's Legs", price = 200, desc = "More stamina, faster regen." },
+	{ id = "sixthsense", name = "Sixth Sense", price = 250, desc = "Screen edges glow when an entity is near." },
 }
 
 table.freeze(Config.SurfaceNoise)

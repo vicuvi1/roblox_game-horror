@@ -27,6 +27,8 @@ local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 local Signals = require(script.Parent:WaitForChild("Signals"))
 local MapManager = require(script.Parent:WaitForChild("MapManager"))
 local HidingSpotSystem = require(script.Parent:WaitForChild("HidingSpotSystem"))
+local Progression = require(script.Parent:WaitForChild("Progression"))
+local DownSystem = require(script.Parent:WaitForChild("DownSystem"))
 
 local PlayerService = {}
 
@@ -58,6 +60,11 @@ export type PState = {
 	statHides: number,
 	alive: boolean,
 	escaped: boolean,
+	-- purchased shop-item effects (read once per round)
+	itemLungs: boolean,
+	itemRunner: boolean,
+	itemBright: boolean,
+	itemSixth: boolean,
 }
 
 local states: { [Player]: PState } = {}
@@ -133,6 +140,10 @@ local function newState(): PState
 		statHides = 0,
 		alive = false,
 		escaped = false,
+		itemLungs = false,
+		itemRunner = false,
+		itemBright = false,
+		itemSixth = false,
 	}
 end
 
@@ -163,11 +174,18 @@ function PlayerService.init(refs: MapManager.MapRefs)
 			s.statHides += 1
 		end
 	end)
+	-- Stop the survival timer the moment a player truly dies.
+	Signals.Death.Event:Connect(function(player: Player)
+		local s = states[player]
+		if s then
+			s.alive = false
+		end
+	end)
 end
 
--- Fresh round: refill resources, zero stats.
+-- Fresh round: refill resources, zero stats, read purchased upgrades.
 function PlayerService.resetForRound()
-	for _, s in states do
+	for player, s in states do
 		s.stamina = GameConfig.MaxStamina
 		s.battery = GameConfig.MaxBattery
 		s.breath = 100
@@ -181,6 +199,10 @@ function PlayerService.resetForRound()
 		s.alive = true
 		s.escaped = false
 		s.lastPos = nil
+		s.itemLungs = Progression.owns(player, "lungs")
+		s.itemRunner = Progression.owns(player, "runner")
+		s.itemBright = Progression.owns(player, "brightlight")
+		s.itemSixth = Progression.owns(player, "sixthsense")
 	end
 end
 
@@ -269,6 +291,13 @@ local function getHumanoid(player: Player): Humanoid?
 end
 
 local function updateMovement(player: Player, s: PState, humanoid: Humanoid, dt: number)
+	-- Downed: DownSystem owns you now — crawl only, no stamina sim.
+	if DownSystem.isDowned(player) then
+		humanoid.WalkSpeed = GameConfig.DownCrawlSpeed
+		s.isSprinting = false
+		return
+	end
+
 	local hidden = HidingSpotSystem.isHidden(player)
 
 	-- Decide the authoritative speed for this frame.
@@ -294,14 +323,16 @@ local function updateMovement(player: Player, s: PState, humanoid: Humanoid, dt:
 	humanoid.WalkSpeed = speed
 
 	-- Stamina drain/regen + the exhaustion state machine.
+	local drainMult = if s.itemRunner then 0.8 else 1 -- Runner's Legs
+	local regenMult = if s.itemRunner then 1.5 else 1
 	if s.isSprinting then
 		s.lastSprintTime = os.clock()
-		s.stamina = math.max(0, s.stamina - GameConfig.StaminaDrainRate * dt)
+		s.stamina = math.max(0, s.stamina - GameConfig.StaminaDrainRate * drainMult * dt)
 		if s.stamina <= 0 then
 			s.exhausted = true -- pay the price: slow + loud until recovered
 		end
 	elseif os.clock() - s.lastSprintTime >= GameConfig.StaminaRegenDelay then
-		s.stamina = math.min(GameConfig.MaxStamina, s.stamina + GameConfig.StaminaRegenRate * dt)
+		s.stamina = math.min(GameConfig.MaxStamina, s.stamina + GameConfig.StaminaRegenRate * regenMult * dt)
 		if s.exhausted and s.stamina >= GameConfig.ExhaustedRecoverAt then
 			s.exhausted = false
 		end
@@ -309,8 +340,9 @@ local function updateMovement(player: Player, s: PState, humanoid: Humanoid, dt:
 end
 
 local function updateBreath(s: PState, dt: number)
+	local breathScale = if s.itemLungs then 2 else 1 -- Diver's Lungs
 	if s.holdingBreath then
-		s.breath = math.max(0, s.breath - (100 / GameConfig.BreathDuration) * dt)
+		s.breath = math.max(0, s.breath - (100 / (GameConfig.BreathDuration * breathScale)) * dt)
 		if s.breath <= 0 then
 			s.holdingBreath = false -- lungs give out
 			s.breathCooldownUntil = os.clock() + GameConfig.BreathCooldown
@@ -324,7 +356,11 @@ local function updateFlashlight(player: Player, s: PState, dt: number)
 	local wantOn = s.wantsFlashlight and s.battery > 0
 	s.flashlightOn = wantOn
 	if wantOn then
-		s.battery = math.max(0, s.battery - GameConfig.BatteryDrainRate * dt)
+		local drain = GameConfig.BatteryDrainRate * (if s.itemBright then 0.6 else 1) -- Halogen
+		s.battery = math.max(0, s.battery - drain * dt)
+	end
+	if s.light then
+		s.light.Brightness = GameConfig.FlashlightBrightness + (if s.itemBright then 2.5 else 0)
 	end
 	local light = ensureFlashlight(player, s)
 	if light then

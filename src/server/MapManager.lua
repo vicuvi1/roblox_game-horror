@@ -58,6 +58,7 @@ export type MapRefs = {
 	extractionRect: Rect,
 	spawnPositions: { Vector3 },
 	patrolPoints: { Vector3 }, -- zone-by-zone patrol route for the enemy
+	generatorSpots: { Vector3 }, -- where ObjectiveSystem places generators
 }
 
 ------------------------------------------------------------------
@@ -577,6 +578,12 @@ function MapManager.build(): MapRefs
 		extractionRect = { -12, 12, 103, 123 },
 		spawnPositions = spawnPositions,
 		patrolPoints = patrolPoints,
+		-- Spread across the FAR zones so the team must split up to power extraction.
+		generatorSpots = {
+			Vector3.new(-38, 0, 45), -- Kitchen
+			Vector3.new(45, 0, 90), -- Bedroom
+			Vector3.new(-55, 0, 68), -- Maintenance
+		},
 	}
 end
 

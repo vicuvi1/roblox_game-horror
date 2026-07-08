@@ -132,6 +132,8 @@ function Effects.create()
 	local lastStepSign = 1
 	local bloodTimer = 0 -- blood splatter fade
 	local snapTarget: Vector3? = nil -- camera whips toward the killer
+	local downed = false -- extra desaturation while bleeding out
+	local sense = false -- Sixth Sense: edge glow when an entity is near
 
 	local self = {}
 	-- Assigned by the controller: called on each head-bob footfall.
@@ -143,6 +145,15 @@ function Effects.create()
 
 	function self.setHunted(active: boolean)
 		hunted = active
+	end
+
+	function self.setDowned(active: boolean)
+		downed = active
+	end
+
+	-- Sixth Sense upgrade: edges glow when an entity is near, even unseen.
+	function self.setSense(active: boolean)
+		sense = active
 	end
 
 	function self.jumpscare(enemyPos: Vector3?)
@@ -168,11 +179,17 @@ function Effects.create()
 		local rate = if tensionTarget > tension then 3 else 1
 		tension += (tensionTarget - tension) * math.min(1, dt * rate)
 
-		-- Vignette closes in + world desaturates as fear rises.
+		-- Vignette closes in + world desaturates as fear rises (and while downed).
+		local desat = if downed then 0.55 else 0
 		for _, grad in blackEdges do
-			grad.Transparency = NumberSequence.new(0.45 - tension * 0.35, 1)
+			grad.Transparency = NumberSequence.new(0.45 - tension * 0.35 - (if downed then 0.2 else 0), 1)
+			-- Sixth-sense glow tints the vignette cold cyan when danger is near.
+			local frame = grad.Parent
+			if frame and frame:IsA("Frame") then
+				frame.BackgroundColor3 = if sense then Color3.fromRGB(20, 50, 90) else Color3.fromRGB(0, 0, 0)
+			end
 		end
-		colorCorrection.Saturation = -0.3 - tension * 0.35
+		colorCorrection.Saturation = -0.3 - tension * 0.35 - desat
 
 		-- Red pulse only while actively hunted.
 		pulsePhase += dt * (2 + tension * 6)
